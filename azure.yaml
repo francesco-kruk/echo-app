@@ -1,0 +1,28 @@
+name: echo-app
+metadata:
+  template: echo-app@0.0.1
+
+services:
+  backend:
+    project: ./backend
+    language: python
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+
+  frontend:
+    project: ./frontend
+    language: js
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .
+
+hooks:
+  postprovision:
+    shell: sh
+    run: |
+      echo "Deployment complete!"
+      echo "Frontend URL: ${SERVICE_FRONTEND_URI}"
+      echo "Backend URL: ${SERVICE_BACKEND_URI}"
