@@ -11,7 +11,7 @@ A minimal React + FastAPI application designed for Azure Container Apps deployme
 │  ┌─────────────────────────┐    ┌─────────────────────────┐  │
 │  │   Frontend (Public)     │    │  Backend (Internal)     │  │
 │  │   ┌─────────────────┐   │    │                         │  │
-│  │   │  Nginx Proxy    │   │───▶│  FastAPI (port 8000)    │  │
+│  │   │  Nginx Proxy    │   │───>│  FastAPI (port 8000)    │  │
 │  │   │  /api/* → backend   │    │  /echo, /healthz        │  │
 │  │   │  /* → static files  │    │                         │  │
 │  │   └─────────────────┘   │    │  (internal FQDN only)   │  │
