@@ -20,7 +20,7 @@ def get_user_id(x_user_id: str = Header(..., description="User ID header")) -> s
 async def verify_deck_ownership(deck_id: str, user_id: str) -> None:
     """Verify that the deck exists and belongs to the user."""
     deck_repo = get_deck_repository()
-    if not await deck_repo.exists(deck_id, user_id):
+    if not deck_repo.exists(deck_id, user_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Deck with ID {deck_id} not found",
@@ -34,7 +34,7 @@ async def list_cards(deck_id: str, x_user_id: str = Header(...)) -> CardListResp
     await verify_deck_ownership(deck_id, user_id)
 
     repo = get_card_repository()
-    cards = await repo.list_by_deck(deck_id, user_id)
+    cards = repo.list_by_deck(deck_id, user_id)
     return CardListResponse(
         cards=[CardResponse(**card.model_dump()) for card in cards],
         count=len(cards),
@@ -49,7 +49,7 @@ async def get_card(deck_id: str, card_id: str, x_user_id: str = Header(...)) -> 
 
     repo = get_card_repository()
     try:
-        card = await repo.get_by_id(card_id, user_id)
+        card = repo.get_by_id(card_id, user_id)
         # Verify card belongs to the specified deck
         if card.deckId != deck_id:
             raise HTTPException(
@@ -73,7 +73,7 @@ async def create_card(
     repo = get_card_repository()
 
     try:
-        card = await repo.create(deck_id, user_id, card_create)
+        card = repo.create(deck_id, user_id, card_create)
         return CardResponse(**card.model_dump())
     except DeckNotFoundError:
         raise HTTPException(
@@ -93,14 +93,14 @@ async def update_card(
     repo = get_card_repository()
     try:
         # Verify card belongs to the specified deck
-        existing = await repo.get_by_id(card_id, user_id)
+        existing = repo.get_by_id(card_id, user_id)
         if existing.deckId != deck_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Card with ID {card_id} not found in deck {deck_id}",
             )
 
-        card = await repo.update(card_id, user_id, card_update)
+        card = repo.update(card_id, user_id, card_update)
         return CardResponse(**card.model_dump())
     except CardNotFoundError:
         raise HTTPException(
@@ -118,14 +118,14 @@ async def delete_card(deck_id: str, card_id: str, x_user_id: str = Header(...)) 
     repo = get_card_repository()
     try:
         # Verify card belongs to the specified deck
-        existing = await repo.get_by_id(card_id, user_id)
+        existing = repo.get_by_id(card_id, user_id)
         if existing.deckId != deck_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Card with ID {card_id} not found in deck {deck_id}",
             )
 
-        await repo.delete(card_id, user_id)
+        repo.delete(card_id, user_id)
     except CardNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

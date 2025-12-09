@@ -1,6 +1,6 @@
 """Repository for Card CRUD operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from azure.cosmos import ContainerProxy
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
@@ -29,7 +29,7 @@ class CardRepository:
             self._container = get_cards_container()
         return self._container
 
-    async def list_by_deck(self, deck_id: str, user_id: str) -> list[Card]:
+    def list_by_deck(self, deck_id: str, user_id: str) -> list[Card]:
         """List all cards in a deck."""
         query = "SELECT * FROM c WHERE c.deckId = @deckId AND c.userId = @userId ORDER BY c.createdAt DESC"
         parameters = [
@@ -46,7 +46,7 @@ class CardRepository:
         )
         return [Card(**item) for item in items]
 
-    async def get_by_id(self, card_id: str, user_id: str) -> Card:
+    def get_by_id(self, card_id: str, user_id: str) -> Card:
         """Get a card by ID and user ID."""
         try:
             item = self.container.read_item(item=card_id, partition_key=user_id)
@@ -54,11 +54,11 @@ class CardRepository:
         except CosmosResourceNotFoundError:
             raise CardNotFoundError(f"Card with ID {card_id} not found")
 
-    async def create(self, deck_id: str, user_id: str, card_create: CardCreate) -> Card:
+    def create(self, deck_id: str, user_id: str, card_create: CardCreate) -> Card:
         """Create a new card in a deck."""
         # Verify deck exists and belongs to user
         deck_repo = get_deck_repository()
-        if not await deck_repo.exists(deck_id, user_id):
+        if not deck_repo.exists(deck_id, user_id):
             raise DeckNotFoundError(f"Deck with ID {deck_id} not found")
 
         card = Card(
@@ -70,17 +70,17 @@ class CardRepository:
         created_item = self.container.create_item(body=card.model_dump())
         return Card(**created_item)
 
-    async def update(self, card_id: str, user_id: str, card_update: CardUpdate) -> Card:
+    def update(self, card_id: str, user_id: str, card_update: CardUpdate) -> Card:
         """Update an existing card."""
         # First, get the existing card
-        existing = await self.get_by_id(card_id, user_id)
+        existing = self.get_by_id(card_id, user_id)
 
         # Apply updates
         update_data = card_update.model_dump(exclude_unset=True)
         if update_data:
             for key, value in update_data.items():
                 setattr(existing, key, value)
-            existing.updatedAt = datetime.utcnow().isoformat() + "Z"
+            existing.updatedAt = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Replace the item
         updated_item = self.container.replace_item(
@@ -89,16 +89,16 @@ class CardRepository:
         )
         return Card(**updated_item)
 
-    async def delete(self, card_id: str, user_id: str) -> None:
+    def delete(self, card_id: str, user_id: str) -> None:
         """Delete a card by ID."""
         try:
             self.container.delete_item(item=card_id, partition_key=user_id)
         except CosmosResourceNotFoundError:
             raise CardNotFoundError(f"Card with ID {card_id} not found")
 
-    async def delete_by_deck(self, deck_id: str, user_id: str) -> int:
+    def delete_by_deck(self, deck_id: str, user_id: str) -> int:
         """Delete all cards in a deck. Returns count of deleted cards."""
-        cards = await self.list_by_deck(deck_id, user_id)
+        cards = self.list_by_deck(deck_id, user_id)
         for card in cards:
             self.container.delete_item(item=card.id, partition_key=user_id)
         return len(cards)

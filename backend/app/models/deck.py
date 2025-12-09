@@ -1,6 +1,6 @@
 """Deck models for API requests and responses."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from uuid import uuid4
 
@@ -12,7 +12,7 @@ def generate_uuid() -> str:
 
 def now_iso() -> str:
     """Get current UTC timestamp in ISO format."""
-    return datetime.utcnow().isoformat() + "Z"
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 class DeckBase(BaseModel):

@@ -11,7 +11,7 @@ router = APIRouter(prefix="/decks", tags=["decks"])
 async def list_decks(x_user_id: str = Header(...)) -> DeckListResponse:
     """List all decks for the current user."""
     repo = get_deck_repository()
-    decks = await repo.list_by_user(x_user_id)
+    decks = repo.list_by_user(x_user_id)
     return DeckListResponse(
         decks=[DeckResponse(**deck.model_dump()) for deck in decks],
         count=len(decks),
@@ -23,7 +23,7 @@ async def get_deck(deck_id: str, x_user_id: str = Header(...)) -> DeckResponse:
     """Get a specific deck by ID."""
     repo = get_deck_repository()
     try:
-        deck = await repo.get_by_id(deck_id, x_user_id)
+        deck = repo.get_by_id(deck_id, x_user_id)
         return DeckResponse(**deck.model_dump())
     except DeckNotFoundError:
         raise HTTPException(
@@ -36,7 +36,7 @@ async def get_deck(deck_id: str, x_user_id: str = Header(...)) -> DeckResponse:
 async def create_deck(deck_create: DeckCreate, x_user_id: str = Header(...)) -> DeckResponse:
     """Create a new deck."""
     repo = get_deck_repository()
-    deck = await repo.create(deck_create, x_user_id)
+    deck = repo.create(deck_create, x_user_id)
     return DeckResponse(**deck.model_dump())
 
 
@@ -47,7 +47,7 @@ async def update_deck(
     """Update an existing deck."""
     repo = get_deck_repository()
     try:
-        deck = await repo.update(deck_id, x_user_id, deck_update)
+        deck = repo.update(deck_id, x_user_id, deck_update)
         return DeckResponse(**deck.model_dump())
     except DeckNotFoundError:
         raise HTTPException(
@@ -64,9 +64,9 @@ async def delete_deck(deck_id: str, x_user_id: str = Header(...)) -> None:
 
     try:
         # Delete all cards in the deck first
-        await card_repo.delete_by_deck(deck_id, x_user_id)
+        card_repo.delete_by_deck(deck_id, x_user_id)
         # Then delete the deck
-        await deck_repo.delete(deck_id, x_user_id)
+        deck_repo.delete(deck_id, x_user_id)
     except DeckNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
