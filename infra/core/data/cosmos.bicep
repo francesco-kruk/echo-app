@@ -124,6 +124,3 @@ output accountName string = cosmosAccount.name
 output databaseName string = database.name
 output decksContainerName string = decksContainer.name
 output cardsContainerName string = cardsContainer.name
-
-#disable-next-line outputs-should-not-contain-secrets
-output primaryKey string = cosmosAccount.listKeys().primaryMasterKey
