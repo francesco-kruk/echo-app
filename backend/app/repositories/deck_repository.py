@@ -2,7 +2,7 @@
 
 from datetime import datetime, timezone
 from azure.cosmos import ContainerProxy
-from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosHttpResponseError
+from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from app.db import get_decks_container
 from app.models import Deck, DeckCreate, DeckUpdate
@@ -70,15 +70,16 @@ class DeckRepository:
         if update_data:
             for key, value in update_data.items():
                 setattr(existing, key, value)
-            existing.updatedAt = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
-
-        # Replace the item
-        updated_item = self.container.replace_item(
-            item=deck_id,
-            body=existing.model_dump(),
-        )
-        return Deck(**updated_item)
-
+            existing.updatedAt = datetime.utcnow().isoformat() + "Z"
+            # Replace the item only if there are updates
+            updated_item = self.container.replace_item(
+                item=deck_id,
+                body=existing.model_dump(),
+            )
+            return Deck(**updated_item)
+        else:
+            # No changes, return the existing deck
+            return existing
     async def delete(self, deck_id: str, user_id: str) -> None:
         """Delete a deck by ID."""
         try:
