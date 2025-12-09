@@ -83,13 +83,13 @@ async def seed_sample_data(x_user_id: str = Header(...)) -> SeedResponse:
 
     for deck_create in SAMPLE_DECKS:
         # Create deck
-        deck = await deck_repo.create(deck_create, x_user_id)
+        deck = deck_repo.create(deck_create, x_user_id)
         decks_created += 1
 
         # Add cards to deck
         cards_for_deck = SAMPLE_CARDS.get(deck_create.name, [])
         for card_create in cards_for_deck:
-            await card_repo.create(deck.id, x_user_id, card_create)
+            card_repo.create(deck.id, x_user_id, card_create)
             cards_created += 1
 
     return SeedResponse(
