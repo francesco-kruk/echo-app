@@ -18,11 +18,14 @@ services:
     docker:
       path: ./Dockerfile
       context: .
+      buildArgs:
+        - VITE_API_URL=${VITE_API_URL}
 
 hooks:
   postprovision:
     shell: sh
     run: |
       echo "Deployment complete!"
-      echo "Frontend URL: ${SERVICE_FRONTEND_URI}"
-      echo "Backend URL: ${SERVICE_BACKEND_URI}"
+      echo "Frontend URL: ${FRONTEND_URI}"
+      echo "Backend URL (public API): ${BACKEND_URI}"
+      echo "VITE_API_URL: ${VITE_API_URL}"

@@ -7,8 +7,9 @@ services:
       - "8000:8000"
     volumes:
       - ./backend/app:/app/app
+    env_file:
+      - ./backend/.env
     environment:
-      - PORT=8000
       - CORS_ORIGINS=http://localhost:3000,http://localhost:4173,http://localhost
     command: uv run uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     healthcheck:
@@ -30,7 +31,9 @@ services:
       - ./frontend/public:/app/public
       - ./frontend/index.html:/app/index.html
       - ./frontend/vite.config.ts:/app/vite.config.ts
-    # No VITE_API_URL needed - frontend uses /api paths with Vite proxy
+    environment:
+      # Use Vite proxy for local dev (empty VITE_API_URL falls back to /api)
+      - VITE_API_TARGET=http://backend:8000
     command: npm run dev -- --host --port 3000
     depends_on:
       backend:

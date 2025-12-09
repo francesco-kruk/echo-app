@@ -12,6 +12,10 @@ RUN npm ci
 # Copy source code
 COPY . .
 
+# Build argument for API URL (passed via azd from VITE_API_URL output)
+ARG VITE_API_URL
+ENV VITE_API_URL=$VITE_API_URL
+
 # Build the application
 RUN npm run build
 
@@ -21,11 +25,8 @@ FROM nginx:alpine
 # Copy built assets from builder
 COPY --from=builder /app/dist /usr/share/nginx/html
 
-# Copy nginx configuration template
-COPY nginx.conf /etc/nginx/templates/default.conf.template
-
-# Set environment variables with defaults
-ENV BACKEND_URL=http://backend
+# Copy nginx configuration (no proxy, just static serving)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Expose port 80
 EXPOSE 80
@@ -34,5 +35,4 @@ EXPOSE 80
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost/health || exit 1
 
-# Start nginx (envsubst processes the template)
 CMD ["nginx", "-g", "daemon off;"]

@@ -1,6 +1,14 @@
 # Echo App
 
-A minimal React + FastAPI application designed for Azure Container Apps deployment with a secure internal backend architecture.
+A flashcard application built with React + FastAPI, designed for Azure Container Apps deployment with Cosmos DB backend.
+
+## Features
+
+- 📚 **Deck Management** - Create, edit, and delete flashcard decks
+- 🃏 **Card Management** - Add, edit, and delete cards within decks
+- 🔄 **Interactive Flashcards** - Click to flip cards and reveal answers
+- 📦 **Sample Data** - One-click button to populate sample flashcard decks
+- 🌐 **Azure Ready** - Deploys to Azure Container Apps with Cosmos DB
 
 ## Architecture
 
@@ -9,38 +17,49 @@ A minimal React + FastAPI application designed for Azure Container Apps deployme
 │                    Azure Container Apps                      │
 │                                                              │
 │  ┌─────────────────────────┐    ┌─────────────────────────┐  │
-│  │   Frontend (Public)     │    │  Backend (Internal)     │  │
+│  │   Frontend (Public)     │    │   Backend (Public)      │  │
 │  │   ┌─────────────────┐   │    │                         │  │
-│  │   │  Nginx Proxy    │   │───>│  FastAPI (port 8000)    │  │
-│  │   │  /api/* → backend   │    │  /echo, /healthz        │  │
-│  │   │  /* → static files  │    │                         │  │
-│  │   └─────────────────┘   │    │  (internal FQDN only)   │  │
+│  │   │  Nginx Static   │   │    │  FastAPI (port 8000)    │  │
+│  │   │  Serves React   │   │───>│  /decks, /cards, /seed  │  │
+│  │   │  SPA files      │   │    │                         │  │
+│  │   └─────────────────┘   │    │  (public HTTPS)         │  │
 │  └─────────────────────────┘    └─────────────────────────┘  │
-│           ▲                                                  │
-└───────────│──────────────────────────────────────────────────┘
-            │
-     Public Internet
+│           ▲                              │                   │
+└───────────│──────────────────────────────│───────────────────┘
+            │                              │
+     Public Internet              ┌────────▼────────┐
+                                  │   Cosmos DB     │
+                                  │  (decks/cards)  │
+                                  └─────────────────┘
 ```
 
-- **Frontend**: Publicly accessible, serves static React app and proxies `/api/*` requests to the internal backend
-- **Backend**: Internal-only (not accessible from the internet), communicates only within the Container Apps environment
+- **Frontend**: Publicly accessible, serves React SPA and calls backend API directly
+- **Backend**: Publicly accessible with CORS configured to accept requests from the frontend origin
 
 ## Project Structure
 
 ```
 echo-app/
-├── frontend/          # Vite + React frontend with Nginx proxy
+├── frontend/           # Vite + React frontend
 │   ├── src/
-│   ├── nginx.conf     # Nginx config for /api proxy
-│   ├── Dockerfile     # Multi-stage build with Nginx
+│   │   ├── api/        # API client for backend communication
+│   │   ├── pages/      # DecksPage, CardsPage
+│   │   ├── components/ # DeckForm, CardForm modals
+│   │   └── main.tsx    # React Router setup
+│   ├── nginx.conf      # Nginx config for static file serving
+│   ├── Dockerfile      # Multi-stage build with Nginx
 │   └── package.json
-├── backend/           # FastAPI backend
+├── backend/            # FastAPI backend
 │   ├── app/
+│   │   ├── routers/    # decks, cards, seed endpoints
+│   │   ├── models/     # Pydantic models
+│   │   ├── repositories/ # Cosmos DB data access
+│   │   └── db/         # Cosmos DB connection
 │   ├── Dockerfile
 │   └── pyproject.toml
-├── infra/             # Azure Bicep templates
-├── docker-compose.yml # Local development
-├── azure.yaml         # Azure Developer CLI config
+├── infra/              # Azure Bicep templates
+├── docker-compose.yml  # Local development
+├── azure.yaml          # Azure Developer CLI config
 └── README.md
 ```
 
@@ -53,7 +72,8 @@ If you're using VS Code with the [Dev Containers extension](https://marketplace.
 1. Open this folder in VS Code
 2. Click "Reopen in Container" when prompted (or run `Dev Containers: Reopen in Container` from the command palette)
 3. Wait for the container to build — all dependencies are installed automatically
-4. Run services with `docker compose up` or start them manually
+4. Copy `.env.example` to `.env` in the `backend/` folder and configure Cosmos DB credentials
+5. Run services with `docker compose up` or start them manually
 
 The dev container includes Python 3.12, Node.js 20, uv, Azure CLI, and azd pre-configured.
 
@@ -62,6 +82,10 @@ The dev container includes Python 3.12, Node.js 20, uv, Azure CLI, and azd pre-c
 > **Prerequisites:** [Docker](https://docker.com/) & Docker Compose
 
 ```bash
+# Copy and configure environment variables
+cp backend/.env.example backend/.env
+# Edit backend/.env with your Cosmos DB credentials
+
 # Start both services with hot reload
 docker compose up --build
 
@@ -76,6 +100,7 @@ docker compose up --build
 **Backend:**
 ```bash
 cd backend
+cp .env.example .env  # Configure Cosmos DB credentials
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
 ```
@@ -84,18 +109,51 @@ uv run uvicorn app.main:app --reload --port 8000
 ```bash
 cd frontend
 npm install
-VITE_API_TARGET=http://localhost:8000 npm run dev
+npm run dev
 ```
 
-> **Note:** The `VITE_API_TARGET` environment variable tells Vite to proxy API requests to your local backend instead of the Docker hostname.
+> **Note:** The frontend defaults to proxying API requests to `http://localhost:8000`. When running via Docker Compose, `VITE_API_TARGET` is automatically set to use the Docker hostname.
+
+## Usage
+
+1. Open the app at `http://localhost:3000` (or the deployed URL)
+2. You'll be redirected to the **Decks** page (`/#/decks`)
+3. Click **"📦 Create Sample Data"** to populate sample flashcard decks (Spanish, French, German basics)
+4. Click on a deck to view its cards
+5. Click on a card to flip and reveal the answer
+6. Use the ✏️ and 🗑️ buttons to edit or delete decks/cards
 
 ## API Endpoints
 
-| Endpoint   | Method | Description              |
-|------------|--------|--------------------------|
-| `/`        | GET    | API info                 |
-| `/healthz` | GET    | Health check             |
-| `/echo`    | POST   | Echo back `{ message }`  |
+All endpoints require the `X-User-Id` header for user identification.
+
+### Decks
+
+| Endpoint           | Method | Description            |
+|--------------------|--------|------------------------|
+| `/decks`           | GET    | List all decks         |
+| `/decks`           | POST   | Create a new deck      |
+| `/decks/{id}`      | GET    | Get deck by ID         |
+| `/decks/{id}`      | PUT    | Update a deck          |
+| `/decks/{id}`      | DELETE | Delete deck and cards  |
+
+### Cards
+
+| Endpoint                      | Method | Description            |
+|-------------------------------|--------|------------------------|
+| `/decks/{deck_id}/cards`      | GET    | List cards in deck     |
+| `/decks/{deck_id}/cards`      | POST   | Create a new card      |
+| `/decks/{deck_id}/cards/{id}` | GET    | Get card by ID         |
+| `/decks/{deck_id}/cards/{id}` | PUT    | Update a card          |
+| `/decks/{deck_id}/cards/{id}` | DELETE | Delete a card          |
+
+### Other
+
+| Endpoint   | Method | Description                        |
+|------------|--------|------------------------------------|
+| `/`        | GET    | API info                           |
+| `/healthz` | GET    | Health check                       |
+| `/seed`    | POST   | Create sample flashcard data       |
 
 ## Azure Deployment
 
@@ -124,21 +182,23 @@ This will:
 ### Environment Variables
 
 The deployment automatically configures:
-- `CORS_ORIGINS` on backend → Frontend's public FQDN
-- `BACKEND_URL` on frontend → Backend internal endpoint used by the Nginx proxy
+- `CORS_ORIGINS` on backend → Frontend's public FQDN (allows cross-origin requests)
+- `VITE_API_URL` → Backend's public URL (baked into frontend at build time)
 
-Clarification for `BACKEND_URL`:
-- In this repo's `infra/main.bicep`, `BACKEND_URL` is currently set to `http://backend`. This assumes internal name resolution within the Azure Container Apps environment such that the frontend can reach the backend by the app name `backend`.
-- If you prefer using the backend's internal FQDN, adjust `infra/main.bicep` to set `BACKEND_URL` to that value (e.g., `http://<internal-fqdn>`), and ensure the Nginx config (`frontend/nginx.conf`) continues to proxy `/api/*` to `${BACKEND_URL}`.
+**Local Development:**
+- Backend: Configure Cosmos DB credentials in `backend/.env`
+- Frontend: Uses Vite proxy (`VITE_API_TARGET`) for local dev, or set `VITE_API_URL` for direct API calls
 
-> **Note:** The backend is internal-only and not accessible from the internet. All API requests go through the frontend's Nginx proxy at `/api/*`.
+**Azure Deployment:**
+- `VITE_API_URL` is automatically set from Bicep outputs and passed to the frontend build
+- CORS is automatically configured to allow only the frontend origin
 
 ## Development Notes
 
 - **Frontend dev port:** 3000 (Vite with `/api` proxy to backend)
-- **Frontend prod port:** 80 (Nginx with `/api` proxy to backend)
-- **Backend port:** 8000
-- **API path:** All frontend code uses `/api/*` paths (e.g., `/api/echo`, `/api/healthz`)
+- **Frontend prod port:** 80 (Nginx serves static files, frontend calls backend directly)
+- **Backend port:** 8000 (public HTTPS in Azure, HTTP locally)
+- **API client:** Uses `VITE_API_URL` in production or `/api` proxy in local dev
 - **CORS:** Configured in `backend/.env` for local, auto-set for Azure
 
 ## CI/CD
@@ -163,6 +223,7 @@ You can also trigger the workflow manually from the **Actions** tab in GitHub.
 
 ## Tech Stack
 
-- **Frontend:** React 18, Vite, TypeScript
+- **Frontend:** React 18, Vite, TypeScript, React Router
 - **Backend:** FastAPI, Uvicorn, Pydantic
+- **Database:** Azure Cosmos DB
 - **Infrastructure:** Azure Container Apps, Bicep, azd
