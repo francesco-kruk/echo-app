@@ -1,6 +1,6 @@
 """Repository for Deck CRUD operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from azure.cosmos import ContainerProxy
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
