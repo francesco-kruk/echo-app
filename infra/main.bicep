@@ -56,6 +56,12 @@ module cosmos './core/data/cosmos.bicep' = {
   }
 }
 
+// Reference to Cosmos DB account for listKeys() access
+resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' existing = {
+  name: 'cosmos-${environmentName}'
+  scope: rg
+}
+
 // Backend container app (public, called directly by frontend)
 module backend './core/host/container-app.bicep' = {
   name: 'backend'
@@ -72,7 +78,7 @@ module backend './core/host/container-app.bicep' = {
     secrets: [
       {
         name: 'cosmos-key'
-        value: cosmos.outputs.primaryKey
+        value: cosmosAccount.listKeys().primaryMasterKey
       }
     ]
     env: [
