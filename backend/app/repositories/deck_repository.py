@@ -2,7 +2,7 @@
 
 from datetime import datetime
 from azure.cosmos import ContainerProxy
-from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosHttpResponseError
+from azure.cosmos.exceptions import CosmosResourceNotFoundError
 
 from app.db import get_decks_container
 from app.models import Deck, DeckCreate, DeckUpdate
