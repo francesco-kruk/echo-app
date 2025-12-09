@@ -28,7 +28,7 @@ class DeckRepository:
             self._container = get_decks_container()
         return self._container
 
-    async def list_by_user(self, user_id: str) -> list[Deck]:
+    def list_by_user(self, user_id: str) -> list[Deck]:
         """List all decks for a user."""
         query = "SELECT * FROM c WHERE c.userId = @userId ORDER BY c.createdAt DESC"
         parameters = [{"name": "@userId", "value": user_id}]
@@ -42,7 +42,7 @@ class DeckRepository:
         )
         return [Deck(**item) for item in items]
 
-    async def get_by_id(self, deck_id: str, user_id: str) -> Deck:
+    def get_by_id(self, deck_id: str, user_id: str) -> Deck:
         """Get a deck by ID and user ID."""
         try:
             item = self.container.read_item(item=deck_id, partition_key=user_id)
@@ -50,7 +50,7 @@ class DeckRepository:
         except CosmosResourceNotFoundError:
             raise DeckNotFoundError(f"Deck with ID {deck_id} not found")
 
-    async def create(self, deck_create: DeckCreate, user_id: str) -> Deck:
+    def create(self, deck_create: DeckCreate, user_id: str) -> Deck:
         """Create a new deck."""
         deck = Deck(
             userId=user_id,
@@ -60,10 +60,10 @@ class DeckRepository:
         created_item = self.container.create_item(body=deck.model_dump())
         return Deck(**created_item)
 
-    async def update(self, deck_id: str, user_id: str, deck_update: DeckUpdate) -> Deck:
+    def update(self, deck_id: str, user_id: str, deck_update: DeckUpdate) -> Deck:
         """Update an existing deck."""
         # First, get the existing deck
-        existing = await self.get_by_id(deck_id, user_id)
+        existing = self.get_by_id(deck_id, user_id)
 
         # Apply updates
         update_data = deck_update.model_dump(exclude_unset=True)
@@ -80,17 +80,17 @@ class DeckRepository:
         else:
             # No changes, return the existing deck
             return existing
-    async def delete(self, deck_id: str, user_id: str) -> None:
+    def delete(self, deck_id: str, user_id: str) -> None:
         """Delete a deck by ID."""
         try:
             self.container.delete_item(item=deck_id, partition_key=user_id)
         except CosmosResourceNotFoundError:
             raise DeckNotFoundError(f"Deck with ID {deck_id} not found")
 
-    async def exists(self, deck_id: str, user_id: str) -> bool:
+    def exists(self, deck_id: str, user_id: str) -> bool:
         """Check if a deck exists."""
         try:
-            await self.get_by_id(deck_id, user_id)
+            self.get_by_id(deck_id, user_id)
             return True
         except DeckNotFoundError:
             return False
