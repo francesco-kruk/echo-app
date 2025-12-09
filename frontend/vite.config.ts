@@ -1,8 +1,8 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
-// Backend URL: use 'backend' hostname in Docker Compose, 'localhost' for local dev
-const backendTarget = process.env['VITE_API_TARGET'] ?? 'http://backend:8000'
+// Backend URL: defaults to localhost for local dev, Docker Compose sets VITE_API_TARGET
+const backendTarget = process.env['VITE_API_TARGET'] ?? 'http://localhost:8000'
 
 // https://vite.dev/config/
 export default defineConfig({

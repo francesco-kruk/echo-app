@@ -25,6 +25,12 @@ param env array = []
 @description('Container image to deploy (leave empty for azd to fill)')
 param imageName string = ''
 
+@description('Additional secrets for the container app')
+param secrets array = []
+
+@description('Allow insecure (HTTP) traffic for internal container-to-container communication')
+param allowInsecure bool = false
+
 // Reference existing Container Apps Environment
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01' existing = {
   name: containerAppsEnvironmentName
@@ -48,7 +54,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
         external: external
         targetPort: targetPort
         transport: 'auto'
-        allowInsecure: false
+        allowInsecure: allowInsecure
       }
       registries: [
         {
@@ -57,12 +63,12 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
           passwordSecretRef: 'registry-password'
         }
       ]
-      secrets: [
+      secrets: concat([
         {
           name: 'registry-password'
           value: containerRegistry.listCredentials().passwords[0].value
         }
-      ]
+      ], secrets)
     }
     template: {
       containers: [

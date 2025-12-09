@@ -9,6 +9,9 @@ param environmentName string
 @description('Primary location for all resources')
 param location string
 
+@description('Whether to enable Cosmos DB Free Tier (only one per subscription)')
+param cosmosFreeTierEnabled bool = false
+
 // @description('Id of the user or app to assign application roles')
 // param principalId string = ''
 
@@ -37,7 +40,23 @@ module containerApps './core/host/container-apps.bicep' = {
   }
 }
 
-// Backend container app (internal-only, accessed via frontend proxy)
+// Cosmos DB account, database, and containers
+module cosmos './core/data/cosmos.bicep' = {
+  name: 'cosmos'
+  scope: rg
+  params: {
+    accountName: 'cosmos-${environmentName}'
+    location: location
+    tags: tags
+    enableFreeTier: cosmosFreeTierEnabled
+    databaseName: 'echoapp'
+    decksContainerName: 'decks'
+    cardsContainerName: 'cards'
+    enableServerless: true
+  }
+}
+
+// Backend container app (public, called directly by frontend)
 module backend './core/host/container-app.bicep' = {
   name: 'backend'
   scope: rg
@@ -48,22 +67,49 @@ module backend './core/host/container-app.bicep' = {
     containerAppsEnvironmentName: containerApps.outputs.environmentName
     containerRegistryName: containerApps.outputs.registryName
     targetPort: 8000
-    external: false  // Internal-only: not publicly accessible
+    external: true  // Public: directly accessible by frontend
+    allowInsecure: false  // Use HTTPS for public access
+    secrets: [
+      {
+        name: 'cosmos-key'
+        value: cosmos.outputs.primaryKey
+      }
+    ]
     env: [
       {
         name: 'PORT'
         value: '8000'
       }
       {
-        // CORS allows requests from frontend proxy (internal communication)
+        // CORS allows requests from public frontend URL
         name: 'CORS_ORIGINS'
         value: 'https://${frontend.outputs.fqdn}'
+      }
+      {
+        name: 'COSMOS_ENDPOINT'
+        value: cosmos.outputs.endpoint
+      }
+      {
+        name: 'COSMOS_KEY'
+        secretRef: 'cosmos-key'
+      }
+      {
+        name: 'COSMOS_DB_NAME'
+        value: cosmos.outputs.databaseName
+      }
+      {
+        name: 'COSMOS_DECKS_CONTAINER'
+        value: cosmos.outputs.decksContainerName
+      }
+      {
+        name: 'COSMOS_CARDS_CONTAINER'
+        value: cosmos.outputs.cardsContainerName
       }
     ]
   }
 }
 
-// Frontend container app (public, proxies /api to internal backend)
+// Frontend container app (public, calls backend directly)
 module frontend './core/host/container-app.bicep' = {
   name: 'frontend'
   scope: rg
@@ -73,19 +119,14 @@ module frontend './core/host/container-app.bicep' = {
     tags: union(tags, { 'azd-service-name': 'frontend' })
     containerAppsEnvironmentName: containerApps.outputs.environmentName
     containerRegistryName: containerApps.outputs.registryName
-    targetPort: 80  // Nginx serves on port 80
+    targetPort: 80  // Nginx serves static files on port 80
     external: true
-    env: [
-      {
-        // Backend internal FQDN for nginx proxy
-        name: 'BACKEND_URL'
-        value: 'http://backend'
-      }
-    ]
+    env: []  // No env vars needed - API URL is injected at build time via azd
   }
 }
 
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerApps.outputs.registryLoginServer
 output AZURE_CONTAINER_REGISTRY_NAME string = containerApps.outputs.registryName
-output BACKEND_URI string = backend.outputs.uri  // Internal-only, not publicly accessible
-output FRONTEND_URI string = frontend.outputs.uri  // Public entry point, proxies /api to backend
+output BACKEND_URI string = backend.outputs.uri  // Public API endpoint
+output FRONTEND_URI string = frontend.outputs.uri  // Public frontend
+output VITE_API_URL string = backend.outputs.uri  // For frontend build to know backend URL
