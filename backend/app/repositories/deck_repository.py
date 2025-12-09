@@ -1,6 +1,6 @@
 """Repository for Deck CRUD operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from azure.cosmos import ContainerProxy
 from azure.cosmos.exceptions import CosmosResourceNotFoundError, CosmosHttpResponseError
 
@@ -70,7 +70,7 @@ class DeckRepository:
         if update_data:
             for key, value in update_data.items():
                 setattr(existing, key, value)
-            existing.updatedAt = datetime.utcnow().isoformat() + "Z"
+            existing.updatedAt = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
         # Replace the item
         updated_item = self.container.replace_item(
