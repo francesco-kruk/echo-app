@@ -7,6 +7,21 @@ Write-Host "=========================================="
 Write-Host "Echo App - Post-Provisioning Setup"
 Write-Host "=========================================="
 
+# Detect CI environment (GitHub Actions, Azure DevOps, etc.)
+# In CI, we skip operations that require elevated Entra ID permissions
+# since the federated credentials don't have Application.ReadWrite.All
+$isCI = $env:CI -eq "true" -or $env:GITHUB_ACTIONS -or $env:TF_BUILD
+if ($isCI) {
+    Write-Host ""
+    Write-Host "🔄 Running in CI environment - skipping Entra ID operations"
+    Write-Host "   (Service principal and redirect URI updates are handled separately)"
+    Write-Host ""
+    Write-Host "=========================================="
+    Write-Host "Post-Provisioning Complete (CI mode)"
+    Write-Host "=========================================="
+    exit 0
+}
+
 # Get values from azd environment
 $SPA_APP_ID = azd env get-value AZURE_SPA_APP_ID 2>$null
 $API_APP_ID = azd env get-value AZURE_API_APP_ID 2>$null
