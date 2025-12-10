@@ -246,7 +246,11 @@ All endpoints (except `/healthz`) require authentication:
 
 ## Azure Deployment
 
-> **Prerequisites:** [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli), [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd), [Docker](https://docker.com/), and an Azure subscription
+> **Prerequisites:** 
+> - [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli)
+> - [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd)
+> - [Docker](https://docker.com/)
+> - Azure subscription with permissions to create app registrations
 >
 > 💡 **Tip:** Using the dev container? Azure CLI, azd, and Docker are already installed — just run the commands below.
 
@@ -261,12 +265,31 @@ azd up
 ```
 
 This will:
-1. Create a resource group
-2. Provision Azure Container Registry
-3. Create Container Apps Environment
+1. Create Entra ID app registrations (echo-api, echo-spa)
+2. Create a resource group
+3. Provision Azure Container Registry, Container Apps Environment, and Cosmos DB
 4. Build and push Docker images
 5. Deploy frontend and backend Container Apps
-6. Output the public URLs
+6. Configure Managed Identity and RBAC for Cosmos DB
+7. **Automatically configure GitHub Actions CI/CD** (prompts to install/authenticate GitHub CLI if needed)
+8. Output the public URLs
+
+### Automatic CI/CD Setup
+
+During `azd up`, the postprovision hook will:
+- **If GitHub CLI is not installed:** Prompt to install it automatically (supports macOS/Linux)
+- **If GitHub CLI is not authenticated:** Prompt you to run `gh auth login`
+- **If authenticated:** Automatically configure GitHub Actions with all required secrets and variables
+
+Once configured, pushing to `main` triggers automatic deployment to the dev environment.
+
+> **Note:** In non-interactive environments (CI), the CLI installation prompt is skipped. For manual setup:
+> ```bash
+> gh auth login
+> azd pipeline config
+> gh secret set BACKEND_API_CLIENT_ID --body "$(azd env get-value BACKEND_API_CLIENT_ID)"
+> gh secret set FRONTEND_SPA_CLIENT_ID --body "$(azd env get-value FRONTEND_SPA_CLIENT_ID)"
+> ```
 
 ### Environment Variables
 

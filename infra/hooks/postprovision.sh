@@ -176,7 +176,58 @@ setup_github_cicd() {
     echo "  Push to main branch to trigger deployment."
 }
 
+# Function to install GitHub CLI
+install_github_cli() {
+    echo ""
+    echo "Installing GitHub CLI..."
+    
+    # Detect OS and install
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        if command -v brew &> /dev/null; then
+            brew install gh
+            return $?
+        else
+            echo "Homebrew not found. Please install GitHub CLI manually:"
+            echo "  https://cli.github.com/"
+            return 1
+        fi
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux - try common package managers
+        if command -v apt-get &> /dev/null; then
+            # Debian/Ubuntu
+            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+                && sudo mkdir -p -m 755 /etc/apt/keyrings \
+                && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+                && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+                && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+                && sudo apt update \
+                && sudo apt install gh -y
+            return $?
+        elif command -v dnf &> /dev/null; then
+            # Fedora/RHEL
+            sudo dnf install 'dnf-command(config-manager)' -y
+            sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+            sudo dnf install gh -y
+            return $?
+        elif command -v yum &> /dev/null; then
+            # Older RHEL/CentOS
+            sudo yum install -y gh
+            return $?
+        else
+            echo "Could not detect package manager. Please install GitHub CLI manually:"
+            echo "  https://cli.github.com/"
+            return 1
+        fi
+    else
+        echo "Unsupported OS. Please install GitHub CLI manually:"
+        echo "  https://cli.github.com/"
+        return 1
+    fi
+}
+
 # Only run CI/CD setup if gh CLI is available and authenticated
+# Skip prompts in CI environments
 if command -v gh &> /dev/null; then
     if gh auth status &> /dev/null 2>&1; then
         setup_github_cicd
@@ -185,9 +236,38 @@ if command -v gh &> /dev/null; then
         echo "NOTE: GitHub CLI not authenticated. Skipping automatic CI/CD setup."
         echo "  To configure CI/CD later, run: gh auth login && azd pipeline config"
     fi
+elif [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ] && [ -t 0 ]; then
+    # Interactive mode - offer to install
+    echo ""
+    echo "=========================================="
+    echo "GitHub CLI not found"
+    echo "=========================================="
+    echo "GitHub CLI is required for automatic CI/CD setup."
+    echo ""
+    read -p "Would you like to install GitHub CLI now? [y/N]: " install_gh
+    
+    if [[ "$install_gh" =~ ^[Yy]$ ]]; then
+        if install_github_cli; then
+            echo ""
+            echo "✓ GitHub CLI installed successfully!"
+            echo ""
+            echo "Please authenticate with GitHub:"
+            gh auth login
+            
+            if gh auth status &> /dev/null 2>&1; then
+                setup_github_cicd
+            fi
+        fi
+    else
+        echo ""
+        echo "Skipping CI/CD setup. To configure later:"
+        echo "  1. Install GitHub CLI: https://cli.github.com/"
+        echo "  2. Run: gh auth login"
+        echo "  3. Run: azd pipeline config"
+    fi
 else
     echo ""
     echo "NOTE: GitHub CLI not installed. Skipping automatic CI/CD setup."
     echo "  Install from: https://cli.github.com/"
-    echo "  Then run: azd pipeline config"
+    echo "  Then run: gh auth login && azd pipeline config"
 fi
