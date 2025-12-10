@@ -228,22 +228,53 @@ setup_app_registrations() {
     fi
     
     # Grant SP permission to manage app registrations (for redirect URI updates)
-    echo "Granting Application.ReadWrite.All permission to service principal..."
+    echo "Granting Graph API permissions to service principal for app registration updates..."
     
     # Microsoft Graph API ID
     MS_GRAPH_ID="00000003-0000-0000-c000-000000000000"
-    # Application.ReadWrite.All scope ID
-    APP_RW_SCOPE="1bfefb4e-e0b5-418b-a88f-73c46d2cc8e9"
+    # Application.ReadWrite.OwnedBy scope ID (more restrictive, only for owned apps)
+    APP_RW_OWNED_SCOPE="18a4783c-866b-4cc7-a460-3d5e5662c884"
     
+    # Add the permission to the service principal app
     az ad app permission add \
         --id "$SP_CLIENT_ID" \
         --api "$MS_GRAPH_ID" \
-        --api-permissions "${APP_RW_SCOPE}=Role" \
+        --api-permissions "${APP_RW_OWNED_SCOPE}=Role" \
         --only-show-errors 2>/dev/null || true
     
-    echo ""
-    echo -e "${YELLOW}NOTE: An admin must grant consent for the service principal to update app registrations.${NC}"
-    echo "Go to Azure Portal > Entra ID > App registrations > $SP_NAME > API permissions > Grant admin consent"
+    # Get the service principal object ID
+    SP_OBJECT_ID=$(az ad sp show --id "$SP_CLIENT_ID" --query "id" -o tsv 2>/dev/null || echo "")
+    
+    if [ -n "$SP_OBJECT_ID" ]; then
+        # Make the service principal an owner of both app registrations
+        # This allows it to update redirect URIs with Application.ReadWrite.OwnedBy permission
+        echo "Adding service principal as owner of app registrations..."
+        
+        if [ -n "$BACKEND_API_CLIENT_ID" ]; then
+            az ad app owner add --id "$BACKEND_API_CLIENT_ID" --owner-object-id "$SP_OBJECT_ID" 2>/dev/null || true
+            echo "  ✓ Added as owner of Backend API app"
+        fi
+        
+        if [ -n "$FRONTEND_SPA_CLIENT_ID" ]; then
+            az ad app owner add --id "$FRONTEND_SPA_CLIENT_ID" --owner-object-id "$SP_OBJECT_ID" 2>/dev/null || true
+            echo "  ✓ Added as owner of Frontend SPA app"
+        fi
+    fi
+    
+    # Attempt to grant admin consent programmatically
+    echo "Attempting to grant admin consent for Graph API permissions..."
+    if az ad app permission admin-consent --id "$SP_CLIENT_ID" 2>/dev/null; then
+        echo -e "${GREEN}✓ Admin consent granted successfully${NC}"
+    else
+        echo ""
+        echo -e "${YELLOW}NOTE: Could not grant admin consent automatically.${NC}"
+        echo "  This requires Global Administrator or Privileged Role Administrator."
+        echo "  Please ask an admin to grant consent:"
+        echo "  1. Go to Azure Portal > Entra ID > App registrations > $SP_NAME"
+        echo "  2. Click 'API permissions' > 'Grant admin consent for <tenant>'"
+        echo ""
+        echo "  Or run: az ad app permission admin-consent --id $SP_CLIENT_ID"
+    fi
     
     echo -e "${GREEN}✓ App registrations verified${NC}"
 }
@@ -311,7 +342,8 @@ main() {
     echo "  Frontend SPA App ID:      $FRONTEND_SPA_CLIENT_ID"
     echo ""
     echo "Next steps:"
-    echo "  1. Grant admin consent for the service principal in Azure Portal"
+    echo "  1. If admin consent wasn't granted, ask an admin to run:"
+    echo "     az ad app permission admin-consent --id $SP_CLIENT_ID"
     echo "  2. Configure environment protection rules in GitHub"
     echo "  3. Push to main branch to trigger deployment to dev"
     echo "  4. Use manual workflow dispatch for staging/prod deployments"
