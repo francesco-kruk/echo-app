@@ -277,18 +277,17 @@ This will:
 ### Automatic CI/CD Setup
 
 During `azd up`, the postprovision hook will:
-- **If GitHub CLI is not installed:** Prompt to install it automatically (supports macOS/Linux)
-- **If GitHub CLI is not authenticated:** Prompt you to run `gh auth login`
+- **If GitHub CLI is not installed:** Prompt to install it automatically (defaults to Yes)
+- **If GitHub CLI is not authenticated:** Guide you through `gh auth login`
 - **If authenticated:** Automatically configure GitHub Actions with all required secrets and variables
 
 Once configured, pushing to `main` triggers automatic deployment to the dev environment.
 
-> **Note:** In non-interactive environments (CI), the CLI installation prompt is skipped. For manual setup:
+> **Note:** If CI/CD setup was skipped or you're setting up a fork, run:
 > ```bash
-> gh auth login
-> azd pipeline config
-> gh secret set BACKEND_API_CLIENT_ID --body "$(azd env get-value BACKEND_API_CLIENT_ID)"
-> gh secret set FRONTEND_SPA_CLIENT_ID --body "$(azd env get-value FRONTEND_SPA_CLIENT_ID)"
+> az login
+> gh auth login  # Will prompt to install gh if missing
+> ./setup_github_cicd.sh
 > ```
 
 ### Environment Variables
@@ -361,8 +360,10 @@ This automated script will:
 #### Prerequisites for Setup Script
 
 - Azure CLI logged in (`az login`) with permissions to create app registrations
-- GitHub CLI authenticated (`gh auth login`) with repo permissions
+- GitHub CLI (`gh`) - will be **auto-installed** if missing, or install from https://cli.github.com/
 - App registrations created (run `azd up` locally first, or `./infra/hooks/preprovision.sh`)
+
+> **💡 Tip:** If you push to GitHub before running setup, the workflow will fail with a clear error message showing exactly what's missing and how to fix it.
 
 #### Manual Setup Alternative
 
