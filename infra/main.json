@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "15294572970956134730"
+      "templateHash": "4153935416841980615"
     }
   },
   "parameters": {
@@ -30,12 +30,44 @@
       "metadata": {
         "description": "Whether to enable Cosmos DB Free Tier (only one per subscription)"
       }
+    },
+    "backendExternal": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Whether the backend container app is externally accessible"
+      }
+    },
+    "tenantId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure AD Tenant ID for authentication"
+      }
+    },
+    "backendApiClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Backend API App Registration Client ID"
+      }
+    },
+    "frontendSpaClientId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Frontend SPA App Registration Client ID"
+      }
     }
   },
   "variables": {
     "tags": {
       "azd-env-name": "[parameters('environmentName')]"
-    }
+    },
+    "cosmosAccountName": "[format('cosmos-{0}', parameters('environmentName'))]",
+    "cosmosDatabaseName": "echoapp",
+    "cosmosDecksContainerName": "decks",
+    "cosmosCardsContainerName": "cards"
   },
   "resources": [
     {
@@ -265,7 +297,7 @@
         "mode": "Incremental",
         "parameters": {
           "accountName": {
-            "value": "[format('cosmos-{0}', parameters('environmentName'))]"
+            "value": "[variables('cosmosAccountName')]"
           },
           "location": {
             "value": "[parameters('location')]"
@@ -277,13 +309,13 @@
             "value": "[parameters('cosmosFreeTierEnabled')]"
           },
           "databaseName": {
-            "value": "echoapp"
+            "value": "[variables('cosmosDatabaseName')]"
           },
           "decksContainerName": {
-            "value": "decks"
+            "value": "[variables('cosmosDecksContainerName')]"
           },
           "cardsContainerName": {
-            "value": "cards"
+            "value": "[variables('cosmosCardsContainerName')]"
           },
           "enableServerless": {
             "value": true
@@ -491,237 +523,6 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
-      "name": "backend",
-      "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
-      "properties": {
-        "expressionEvaluationOptions": {
-          "scope": "inner"
-        },
-        "mode": "Incremental",
-        "parameters": {
-          "name": {
-            "value": "backend"
-          },
-          "location": {
-            "value": "[parameters('location')]"
-          },
-          "tags": {
-            "value": "[union(variables('tags'), createObject('azd-service-name', 'backend'))]"
-          },
-          "containerAppsEnvironmentName": {
-            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps'), '2025-04-01').outputs.environmentName.value]"
-          },
-          "containerRegistryName": {
-            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps'), '2025-04-01').outputs.registryName.value]"
-          },
-          "targetPort": {
-            "value": 8000
-          },
-          "external": {
-            "value": true
-          },
-          "allowInsecure": {
-            "value": false
-          },
-          "secrets": {
-            "value": [
-              {
-                "name": "cosmos-key",
-                "value": "[listKeys(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.DocumentDB/databaseAccounts', format('cosmos-{0}', parameters('environmentName'))), '2024-11-15').primaryMasterKey]"
-              }
-            ]
-          },
-          "env": {
-            "value": [
-              {
-                "name": "PORT",
-                "value": "8000"
-              },
-              {
-                "name": "CORS_ORIGINS",
-                "value": "[format('https://{0}', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend'), '2025-04-01').outputs.fqdn.value)]"
-              },
-              {
-                "name": "COSMOS_ENDPOINT",
-                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos'), '2025-04-01').outputs.endpoint.value]"
-              },
-              {
-                "name": "COSMOS_KEY",
-                "secretRef": "cosmos-key"
-              },
-              {
-                "name": "COSMOS_DB_NAME",
-                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos'), '2025-04-01').outputs.databaseName.value]"
-              },
-              {
-                "name": "COSMOS_DECKS_CONTAINER",
-                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos'), '2025-04-01').outputs.decksContainerName.value]"
-              },
-              {
-                "name": "COSMOS_CARDS_CONTAINER",
-                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos'), '2025-04-01').outputs.cardsContainerName.value]"
-              }
-            ]
-          }
-        },
-        "template": {
-          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
-          "contentVersion": "1.0.0.0",
-          "metadata": {
-            "_generator": {
-              "name": "bicep",
-              "version": "0.39.26.7824",
-              "templateHash": "15582826019998934887"
-            }
-          },
-          "parameters": {
-            "name": {
-              "type": "string",
-              "metadata": {
-                "description": "The name of the container app"
-              }
-            },
-            "location": {
-              "type": "string",
-              "defaultValue": "[resourceGroup().location]",
-              "metadata": {
-                "description": "The location for all resources"
-              }
-            },
-            "tags": {
-              "type": "object",
-              "defaultValue": {},
-              "metadata": {
-                "description": "Tags for all resources"
-              }
-            },
-            "containerAppsEnvironmentName": {
-              "type": "string",
-              "metadata": {
-                "description": "The name of the container apps environment"
-              }
-            },
-            "containerRegistryName": {
-              "type": "string",
-              "metadata": {
-                "description": "The name of the container registry"
-              }
-            },
-            "targetPort": {
-              "type": "int",
-              "defaultValue": 80,
-              "metadata": {
-                "description": "The target port for the container"
-              }
-            },
-            "external": {
-              "type": "bool",
-              "defaultValue": true,
-              "metadata": {
-                "description": "Whether the container app is externally accessible"
-              }
-            },
-            "env": {
-              "type": "array",
-              "defaultValue": [],
-              "metadata": {
-                "description": "Environment variables for the container"
-              }
-            },
-            "imageName": {
-              "type": "string",
-              "defaultValue": "",
-              "metadata": {
-                "description": "Container image to deploy (leave empty for azd to fill)"
-              }
-            },
-            "secrets": {
-              "type": "array",
-              "defaultValue": [],
-              "metadata": {
-                "description": "Additional secrets for the container app"
-              }
-            },
-            "allowInsecure": {
-              "type": "bool",
-              "defaultValue": false,
-              "metadata": {
-                "description": "Allow insecure (HTTP) traffic for internal container-to-container communication"
-              }
-            }
-          },
-          "resources": [
-            {
-              "type": "Microsoft.App/containerApps",
-              "apiVersion": "2023-05-01",
-              "name": "[parameters('name')]",
-              "location": "[parameters('location')]",
-              "tags": "[parameters('tags')]",
-              "properties": {
-                "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
-                "configuration": {
-                  "activeRevisionsMode": "Single",
-                  "ingress": {
-                    "external": "[parameters('external')]",
-                    "targetPort": "[parameters('targetPort')]",
-                    "transport": "auto",
-                    "allowInsecure": "[parameters('allowInsecure')]"
-                  },
-                  "registries": [
-                    {
-                      "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').loginServer]",
-                      "username": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').username]",
-                      "passwordSecretRef": "registry-password"
-                    }
-                  ],
-                  "secrets": "[concat(createArray(createObject('name', 'registry-password', 'value', listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').passwords[0].value)), parameters('secrets'))]"
-                },
-                "template": {
-                  "containers": [
-                    {
-                      "name": "main",
-                      "image": "[if(not(empty(parameters('imageName'))), parameters('imageName'), 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest')]",
-                      "env": "[parameters('env')]",
-                      "resources": {
-                        "cpu": "[json('0.25')]",
-                        "memory": "0.5Gi"
-                      }
-                    }
-                  ],
-                  "scale": {
-                    "minReplicas": 0,
-                    "maxReplicas": 10
-                  }
-                }
-              }
-            }
-          ],
-          "outputs": {
-            "fqdn": {
-              "type": "string",
-              "value": "[reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-01').configuration.ingress.fqdn]"
-            },
-            "uri": {
-              "type": "string",
-              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-01').configuration.ingress.fqdn)]"
-            },
-            "name": {
-              "type": "string",
-              "value": "[parameters('name')]"
-            }
-          }
-        }
-      },
-      "dependsOn": [
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps')]",
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos')]",
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend')]",
-        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
-      ]
-    },
-    {
-      "type": "Microsoft.Resources/deployments",
-      "apiVersion": "2025-04-01",
       "name": "frontend",
       "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
       "properties": {
@@ -762,7 +563,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "15582826019998934887"
+              "templateHash": "7958070673072185127"
             }
           },
           "parameters": {
@@ -839,6 +640,13 @@
               "metadata": {
                 "description": "Allow insecure (HTTP) traffic for internal container-to-container communication"
               }
+            },
+            "enableManagedIdentity": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Enable system-assigned managed identity"
+              }
             }
           },
           "resources": [
@@ -848,6 +656,7 @@
               "name": "[parameters('name')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
+              "identity": "[if(parameters('enableManagedIdentity'), createObject('type', 'SystemAssigned'), null())]",
               "properties": {
                 "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
                 "configuration": {
@@ -881,7 +690,17 @@
                   ],
                   "scale": {
                     "minReplicas": 0,
-                    "maxReplicas": 10
+                    "maxReplicas": 10,
+                    "rules": [
+                      {
+                        "name": "http-scaling",
+                        "http": {
+                          "metadata": {
+                            "concurrentRequests": "10"
+                          }
+                        }
+                      }
+                    ]
                   }
                 }
               }
@@ -899,12 +718,340 @@
             "name": {
               "type": "string",
               "value": "[parameters('name')]"
+            },
+            "principalId": {
+              "type": "string",
+              "value": "[if(parameters('enableManagedIdentity'), reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-01', 'full').identity.principalId, '')]"
             }
           }
         }
       },
       "dependsOn": [
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "backend",
+      "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "name": {
+            "value": "backend"
+          },
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "tags": {
+            "value": "[union(variables('tags'), createObject('azd-service-name', 'backend'))]"
+          },
+          "containerAppsEnvironmentName": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps'), '2025-04-01').outputs.environmentName.value]"
+          },
+          "containerRegistryName": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps'), '2025-04-01').outputs.registryName.value]"
+          },
+          "targetPort": {
+            "value": 8000
+          },
+          "external": {
+            "value": "[parameters('backendExternal')]"
+          },
+          "allowInsecure": {
+            "value": "[not(parameters('backendExternal'))]"
+          },
+          "enableManagedIdentity": {
+            "value": true
+          },
+          "env": {
+            "value": [
+              {
+                "name": "PORT",
+                "value": "8000"
+              },
+              {
+                "name": "CORS_ORIGINS",
+                "value": "[format('https://{0}', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend'), '2025-04-01').outputs.fqdn.value)]"
+              },
+              {
+                "name": "COSMOS_ENDPOINT",
+                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos'), '2025-04-01').outputs.endpoint.value]"
+              },
+              {
+                "name": "COSMOS_DB_NAME",
+                "value": "[variables('cosmosDatabaseName')]"
+              },
+              {
+                "name": "COSMOS_DECKS_CONTAINER",
+                "value": "[variables('cosmosDecksContainerName')]"
+              },
+              {
+                "name": "COSMOS_CARDS_CONTAINER",
+                "value": "[variables('cosmosCardsContainerName')]"
+              },
+              {
+                "name": "AUTH_ENABLED",
+                "value": "true"
+              },
+              {
+                "name": "AZURE_TENANT_ID",
+                "value": "[parameters('tenantId')]"
+              },
+              {
+                "name": "AZURE_API_SCOPE",
+                "value": "[format('api://{0}', parameters('backendApiClientId'))]"
+              },
+              {
+                "name": "AZURE_API_APP_ID",
+                "value": "[parameters('backendApiClientId')]"
+              }
+            ]
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "7958070673072185127"
+            }
+          },
+          "parameters": {
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the container app"
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "The location for all resources"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags for all resources"
+              }
+            },
+            "containerAppsEnvironmentName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the container apps environment"
+              }
+            },
+            "containerRegistryName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the container registry"
+              }
+            },
+            "targetPort": {
+              "type": "int",
+              "defaultValue": 80,
+              "metadata": {
+                "description": "The target port for the container"
+              }
+            },
+            "external": {
+              "type": "bool",
+              "defaultValue": true,
+              "metadata": {
+                "description": "Whether the container app is externally accessible"
+              }
+            },
+            "env": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Environment variables for the container"
+              }
+            },
+            "imageName": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Container image to deploy (leave empty for azd to fill)"
+              }
+            },
+            "secrets": {
+              "type": "array",
+              "defaultValue": [],
+              "metadata": {
+                "description": "Additional secrets for the container app"
+              }
+            },
+            "allowInsecure": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Allow insecure (HTTP) traffic for internal container-to-container communication"
+              }
+            },
+            "enableManagedIdentity": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Enable system-assigned managed identity"
+              }
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.App/containerApps",
+              "apiVersion": "2023-05-01",
+              "name": "[parameters('name')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": "[if(parameters('enableManagedIdentity'), createObject('type', 'SystemAssigned'), null())]",
+              "properties": {
+                "managedEnvironmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('containerAppsEnvironmentName'))]",
+                "configuration": {
+                  "activeRevisionsMode": "Single",
+                  "ingress": {
+                    "external": "[parameters('external')]",
+                    "targetPort": "[parameters('targetPort')]",
+                    "transport": "auto",
+                    "allowInsecure": "[parameters('allowInsecure')]"
+                  },
+                  "registries": [
+                    {
+                      "server": "[reference(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').loginServer]",
+                      "username": "[listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').username]",
+                      "passwordSecretRef": "registry-password"
+                    }
+                  ],
+                  "secrets": "[concat(createArray(createObject('name', 'registry-password', 'value', listCredentials(resourceId('Microsoft.ContainerRegistry/registries', parameters('containerRegistryName')), '2023-07-01').passwords[0].value)), parameters('secrets'))]"
+                },
+                "template": {
+                  "containers": [
+                    {
+                      "name": "main",
+                      "image": "[if(not(empty(parameters('imageName'))), parameters('imageName'), 'mcr.microsoft.com/azuredocs/containerapps-helloworld:latest')]",
+                      "env": "[parameters('env')]",
+                      "resources": {
+                        "cpu": "[json('0.25')]",
+                        "memory": "0.5Gi"
+                      }
+                    }
+                  ],
+                  "scale": {
+                    "minReplicas": 0,
+                    "maxReplicas": 10,
+                    "rules": [
+                      {
+                        "name": "http-scaling",
+                        "http": {
+                          "metadata": {
+                            "concurrentRequests": "10"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ],
+          "outputs": {
+            "fqdn": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-01').configuration.ingress.fqdn]"
+            },
+            "uri": {
+              "type": "string",
+              "value": "[format('https://{0}', reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-01').configuration.ingress.fqdn)]"
+            },
+            "name": {
+              "type": "string",
+              "value": "[parameters('name')]"
+            },
+            "principalId": {
+              "type": "string",
+              "value": "[if(parameters('enableManagedIdentity'), reference(resourceId('Microsoft.App/containerApps', parameters('name')), '2023-05-01', 'full').identity.principalId, '')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "cosmos-rbac",
+      "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "accountName": {
+            "value": "[variables('cosmosAccountName')]"
+          },
+          "principalId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend'), '2025-04-01').outputs.principalId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "13603951016414527860"
+            }
+          },
+          "parameters": {
+            "accountName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the Cosmos DB account"
+              }
+            },
+            "principalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID to assign Cosmos DB Data Contributor role (e.g., Container App managed identity)"
+              }
+            }
+          },
+          "variables": {
+            "cosmosDataContributorRoleId": "00000000-0000-0000-0000-000000000002"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments",
+              "apiVersion": "2024-11-15",
+              "name": "[format('{0}/{1}', parameters('accountName'), guid(resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('accountName')), parameters('principalId'), variables('cosmosDataContributorRoleId')))]",
+              "properties": {
+                "roleDefinitionId": "[format('{0}/sqlRoleDefinitions/{1}', resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('accountName')), variables('cosmosDataContributorRoleId'))]",
+                "principalId": "[parameters('principalId')]",
+                "scope": "[resourceId('Microsoft.DocumentDB/databaseAccounts', parameters('accountName'))]"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend')]",
         "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
       ]
     }
@@ -922,6 +1069,10 @@
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend'), '2025-04-01').outputs.uri.value]"
     },
+    "BACKEND_INTERNAL_FQDN": {
+      "type": "string",
+      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend'), '2025-04-01').outputs.fqdn.value]"
+    },
     "FRONTEND_URI": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend'), '2025-04-01').outputs.uri.value]"
@@ -929,6 +1080,18 @@
     "VITE_API_URL": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend'), '2025-04-01').outputs.uri.value]"
+    },
+    "VITE_AZURE_CLIENT_ID": {
+      "type": "string",
+      "value": "[parameters('frontendSpaClientId')]"
+    },
+    "VITE_TENANT_ID": {
+      "type": "string",
+      "value": "[parameters('tenantId')]"
+    },
+    "VITE_API_SCOPE": {
+      "type": "string",
+      "value": "[format('api://{0}/Decks.ReadWrite api://{1}/Cards.ReadWrite', parameters('backendApiClientId'), parameters('backendApiClientId'))]"
     }
   }
 }

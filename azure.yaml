@@ -2,6 +2,18 @@ name: echo-app
 metadata:
   template: echo-app@0.0.1
 
+# Environment definitions
+environments:
+  dev:
+    infra:
+      parameters: infra/environments/dev.parameters.json
+  staging:
+    infra:
+      parameters: infra/environments/staging.parameters.json
+  prod:
+    infra:
+      parameters: infra/environments/prod.parameters.json
+
 services:
   backend:
     project: ./backend
@@ -19,13 +31,32 @@ services:
       path: ./Dockerfile
       context: .
       buildArgs:
-        - VITE_API_URL=${VITE_API_URL}
+        # Note: No VITE_API_URL needed - frontend uses /api proxy to internal backend
+        - VITE_AZURE_CLIENT_ID=${VITE_AZURE_CLIENT_ID}
+        - VITE_TENANT_ID=${VITE_TENANT_ID}
+        - VITE_API_SCOPE=${VITE_API_SCOPE}
 
 hooks:
+  preprovision:
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/preprovision.ps1
+    posix:
+      shell: sh
+      run: ./infra/hooks/preprovision.sh
+
   postprovision:
-    shell: sh
-    run: |
-      echo "Deployment complete!"
-      echo "Frontend URL: ${FRONTEND_URI}"
-      echo "Backend URL (public API): ${BACKEND_URI}"
-      echo "VITE_API_URL: ${VITE_API_URL}"
+    windows:
+      shell: pwsh
+      run: ./infra/hooks/postprovision.ps1
+    posix:
+      shell: sh
+      run: ./infra/hooks/postprovision.sh
+
+# Pipeline configuration
+# Run 'azd pipeline config' to set up GitHub Actions, then manually add secrets:
+#   - BACKEND_API_CLIENT_ID (from azd env get-value BACKEND_API_CLIENT_ID)
+#   - FRONTEND_SPA_CLIENT_ID (from azd env get-value FRONTEND_SPA_CLIENT_ID)
+# Or run './setup_github_cicd.sh' for fully automated setup
+pipeline:
+  provider: github

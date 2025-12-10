@@ -1,12 +1,59 @@
 /**
  * API client for communicating with the backend.
- * Uses VITE_API_URL for production (direct backend URL) or /api for local dev (proxied).
+ * 
+ * In production: Uses /api which nginx proxies to the internal backend container.
+ * In local dev: Uses /api which vite proxies to localhost:8000.
+ * 
+ * When auth is enabled, automatically acquires and attaches Bearer tokens.
+ * When auth is disabled, falls back to X-User-Id header for local development.
  */
 
-const API_BASE = import.meta.env.VITE_API_URL || '/api';
+import { getPublicClientApplication, getActiveAccount, tokenRequest, authConfig, isAuthConfigured } from '../auth';
 
-// Default user ID for demo purposes
+// Always use /api - nginx (production) or vite (dev) handles proxying to backend
+const API_BASE = '/api';
+
+// Default user ID for demo/dev purposes when auth is disabled
 export const DEFAULT_USER_ID = 'demo-user-001';
+
+/**
+ * Get an access token for API calls.
+ * Returns null if auth is disabled or token acquisition fails.
+ */
+async function getAccessToken(): Promise<string | null> {
+  // Skip token acquisition if auth is disabled
+  if (!authConfig.authEnabled || !isAuthConfigured()) {
+    return null;
+  }
+
+  const pca = getPublicClientApplication();
+  const account = getActiveAccount();
+
+  if (!pca || !account) {
+    console.warn('[API] No MSAL instance or account available');
+    return null;
+  }
+
+  try {
+    const response = await pca.acquireTokenSilent({
+      ...tokenRequest,
+      account,
+    });
+    return response.accessToken;
+  } catch (error) {
+    console.error('[API] Silent token acquisition failed:', error);
+    // Trigger interactive login by redirecting
+    try {
+      await pca.acquireTokenRedirect({
+        ...tokenRequest,
+        account,
+      });
+    } catch (redirectError) {
+      console.error('[API] Token redirect failed:', redirectError);
+    }
+    return null;
+  }
+}
 
 // Types matching backend models
 export interface Deck {
@@ -64,7 +111,12 @@ export interface SeedResponse {
   cards_created: number;
 }
 
-// Helper function for API calls with user ID header
+/**
+ * Helper function for API calls with authentication.
+ * 
+ * When auth is enabled: Uses Bearer token from MSAL
+ * When auth is disabled: Falls back to X-User-Id header for local dev
+ */
 async function apiFetch<T>(
   endpoint: string,
   options: RequestInit = {},
@@ -72,9 +124,19 @@ async function apiFetch<T>(
 ): Promise<T> {
   const headers: HeadersInit = {
     'Content-Type': 'application/json',
-    'X-User-Id': userId,
     ...options.headers,
   };
+
+  // Get access token if auth is enabled
+  const token = await getAccessToken();
+  
+  if (token) {
+    // Use Bearer token authentication
+    (headers as Record<string, string>)['Authorization'] = `Bearer ${token}`;
+  } else {
+    // Fallback to X-User-Id for local dev when auth is disabled
+    (headers as Record<string, string>)['X-User-Id'] = userId;
+  }
 
   const response = await fetch(`${API_BASE}${endpoint}`, {
     ...options,

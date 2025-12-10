@@ -1,0 +1,141 @@
+# Reusable deployment workflow for echo-app
+# This workflow handles provisioning and deployment for any environment
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: 'Target environment (dev, staging, prod)'
+        required: true
+        type: string
+      azure_env_name:
+        description: 'Azure Developer CLI environment name'
+        required: true
+        type: string
+    secrets:
+      AZURE_CLIENT_ID:
+        required: true
+      AZURE_TENANT_ID:
+        required: true
+      AZURE_SUBSCRIPTION_ID:
+        required: true
+      BACKEND_API_CLIENT_ID:
+        required: true
+      FRONTEND_SPA_CLIENT_ID:
+        required: true
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    
+    env:
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_ENV_NAME: ${{ inputs.azure_env_name }}
+      AZURE_LOCATION: switzerlandnorth
+      # App registration IDs (pre-created, shared across environments or per-env)
+      BACKEND_API_CLIENT_ID: ${{ secrets.BACKEND_API_CLIENT_ID }}
+      FRONTEND_SPA_CLIENT_ID: ${{ secrets.FRONTEND_SPA_CLIENT_ID }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Azure Developer CLI
+        uses: Azure/setup-azd@v2
+
+      - name: Log in with Azure (Federated Credentials)
+        run: |
+          azd auth login \
+            --client-id "$AZURE_CLIENT_ID" \
+            --federated-credential-provider "github" \
+            --tenant-id "$AZURE_TENANT_ID"
+
+      - name: Initialize azd environment
+        run: |
+          # Create or select the environment
+          azd env new "$AZURE_ENV_NAME" --location "$AZURE_LOCATION" --subscription "$AZURE_SUBSCRIPTION_ID" 2>/dev/null || \
+          azd env select "$AZURE_ENV_NAME"
+          
+          # Set required environment variables for Bicep parameters
+          azd env set AZURE_TENANT_ID "$AZURE_TENANT_ID"
+          azd env set BACKEND_API_CLIENT_ID "$BACKEND_API_CLIENT_ID"
+          azd env set FRONTEND_SPA_CLIENT_ID "$FRONTEND_SPA_CLIENT_ID"
+          
+          # Set frontend build args (Vite environment variables)
+          azd env set VITE_AZURE_CLIENT_ID "$FRONTEND_SPA_CLIENT_ID"
+          azd env set VITE_TENANT_ID "$AZURE_TENANT_ID"
+          azd env set VITE_API_SCOPE "api://$BACKEND_API_CLIENT_ID/Decks.ReadWrite api://$BACKEND_API_CLIENT_ID/Cards.ReadWrite"
+          
+          # For Azure API app ID used in backend config
+          azd env set AZURE_API_APP_ID "$BACKEND_API_CLIENT_ID"
+          azd env set AZURE_SPA_APP_ID "$FRONTEND_SPA_CLIENT_ID"
+
+      - name: Provision Infrastructure
+        run: |
+          # Skip preprovision hook in CI (app registrations already exist)
+          # The hook checks if apps exist and only creates if missing
+          azd provision --no-prompt
+
+      - name: Deploy Application
+        run: azd deploy --no-prompt
+
+      - name: Update SPA Redirect URIs
+        run: |
+          # Get the deployed frontend URL
+          FRONTEND_URI=$(azd env get-value FRONTEND_URI 2>/dev/null || echo "")
+          
+          if [ -n "$FRONTEND_URI" ] && [ "$FRONTEND_URI" != "null" ]; then
+            echo "Frontend URL: $FRONTEND_URI"
+            
+            # Install Azure CLI extension if needed
+            az extension add --name application-insights --yes 2>/dev/null || true
+            
+            # Get current redirect URIs
+            CURRENT_URIS=$(az ad app show --id "$FRONTEND_SPA_CLIENT_ID" --query "spa.redirectUris" -o json 2>/dev/null || echo "[]")
+            
+            # Check if frontend URI is already configured
+            if echo "$CURRENT_URIS" | grep -q "$FRONTEND_URI"; then
+              echo "✓ Frontend URI already configured in SPA app registration"
+            else
+              echo "Adding $FRONTEND_URI to SPA redirect URIs..."
+              
+              # Build new URI list
+              NEW_URIS=$(echo "$CURRENT_URIS" | jq --arg uri "$FRONTEND_URI" '. + [$uri]')
+              
+              # Get app object ID
+              APP_OBJECT_ID=$(az ad app show --id "$FRONTEND_SPA_CLIENT_ID" --query "id" -o tsv)
+              
+              # Update via Graph API
+              az rest --method PATCH \
+                --uri "https://graph.microsoft.com/v1.0/applications/$APP_OBJECT_ID" \
+                --headers "Content-Type=application/json" \
+                --body "{\"spa\": {\"redirectUris\": $NEW_URIS}}"
+              
+              echo "✓ Successfully added $FRONTEND_URI to SPA redirect URIs"
+            fi
+          else
+            echo "⚠ FRONTEND_URI not available, skipping redirect URI update"
+          fi
+
+      - name: Output Deployment Info
+        run: |
+          echo "=========================================="
+          echo "Deployment Complete!"
+          echo "=========================================="
+          echo ""
+          echo "Environment: $AZURE_ENV_NAME"
+          echo "Frontend URL: $(azd env get-value FRONTEND_URI 2>/dev/null || echo 'N/A')"
+          echo ""
+          echo "Entra ID Configuration:"
+          echo "  Tenant ID: $AZURE_TENANT_ID"
+          echo "  Backend API App ID: $BACKEND_API_CLIENT_ID"
+          echo "  Frontend SPA App ID: $FRONTEND_SPA_CLIENT_ID"
+          echo "=========================================="

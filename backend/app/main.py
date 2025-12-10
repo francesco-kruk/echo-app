@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 
 from app.db import get_settings, verify_connection, close_client
 from app.routers import decks_router, cards_router, seed_router
+from app.auth import get_auth_settings
 
 load_dotenv()
 
@@ -14,6 +15,19 @@ load_dotenv()
 async def lifespan(app: FastAPI):
     # Startup
     settings = get_settings()
+    auth_settings = get_auth_settings()
+
+    # Log authentication configuration
+    if auth_settings.enabled:
+        if auth_settings.is_configured():
+            print(f"✓ Entra ID authentication enabled")
+            print(f"  Tenant: {auth_settings.tenant_id}")
+            print(f"  API Audience: {auth_settings.api_audience}")
+        else:
+            print("⚠ Authentication enabled but not configured (missing AZURE_TENANT_ID or AZURE_API_SCOPE)")
+    else:
+        print("⚠ Authentication DISABLED - using X-User-Id header fallback (dev mode)")
+
     if settings.is_configured():
         if verify_connection():
             print("✓ Connected to Cosmos DB")

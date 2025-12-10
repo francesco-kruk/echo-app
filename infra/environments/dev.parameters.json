@@ -9,7 +9,7 @@
       "value": "${AZURE_LOCATION}"
     },
     "cosmosFreeTierEnabled": {
-      "value": false
+      "value": true
     },
     "backendExternal": {
       "value": false
