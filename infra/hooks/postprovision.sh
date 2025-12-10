@@ -106,54 +106,88 @@ echo "  Frontend SPA App ID:    ${AZURE_SPA_APP_ID:-'Not set'}"
 echo "=========================================="
 
 # ============================================
-# CI/CD Pipeline Setup Prompt
+# Automatic CI/CD Pipeline Setup
 # ============================================
-# Only prompt for CI/CD setup in interactive mode (not in CI)
-if [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ] && [ -t 0 ]; then
+# Automatically configure GitHub Actions if gh CLI is available
+
+setup_github_cicd() {
     echo ""
     echo "=========================================="
-    echo "CI/CD Pipeline Setup"
+    echo "Configuring GitHub Actions CI/CD"
     echo "=========================================="
     
-    # Check if gh CLI is available
-    if command -v gh &> /dev/null && gh auth status &> /dev/null 2>&1; then
-        # Check if repo has GitHub Actions configured
-        REPO_URL=$(git remote get-url origin 2>/dev/null || echo "")
-        
-        if [ -n "$REPO_URL" ]; then
-            GITHUB_REPO=$(echo "$REPO_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/' | sed 's/\.git$//')
-            
-            # Check if secrets are already configured
-            EXISTING_SECRET=$(gh secret list --repo "$GITHUB_REPO" 2>/dev/null | grep -c "BACKEND_API_CLIENT_ID" || echo "0")
-            
-            if [ "$EXISTING_SECRET" = "0" ]; then
-                echo ""
-                echo "GitHub Actions is not fully configured for this repository."
-                echo ""
-                read -p "Would you like to set up CI/CD now? [y/N]: " setup_cicd
-                
-                if [[ "$setup_cicd" =~ ^[Yy]$ ]]; then
-                    echo ""
-                    echo "Running CI/CD setup..."
-                    ./setup_github_cicd.sh
-                else
-                    echo ""
-                    echo "To set up CI/CD later, run:"
-                    echo "  ./setup_github_cicd.sh"
-                    echo ""
-                    echo "Or use azd pipeline config and manually add secrets:"
-                    echo "  gh secret set BACKEND_API_CLIENT_ID --body \"$(azd env get-value BACKEND_API_CLIENT_ID)\""
-                    echo "  gh secret set FRONTEND_SPA_CLIENT_ID --body \"$(azd env get-value FRONTEND_SPA_CLIENT_ID)\""
-                fi
-            else
-                echo "✓ CI/CD pipeline is already configured"
-            fi
-        fi
+    # Get repository info
+    REPO_URL=$(git remote get-url origin 2>/dev/null || echo "")
+    if [ -z "$REPO_URL" ]; then
+        echo "WARNING: Not a git repository. Skipping CI/CD setup."
+        return 0
+    fi
+    
+    GITHUB_REPO=$(echo "$REPO_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/' | sed 's/\.git$//')
+    echo "Repository: $GITHUB_REPO"
+    
+    # Get values from azd environment
+    TENANT_ID=$(azd env get-value AZURE_TENANT_ID 2>/dev/null || echo "")
+    SUBSCRIPTION_ID=$(azd env get-value AZURE_SUBSCRIPTION_ID 2>/dev/null || az account show --query id -o tsv 2>/dev/null || echo "")
+    API_APP_ID=$(azd env get-value AZURE_API_APP_ID 2>/dev/null || azd env get-value BACKEND_API_CLIENT_ID 2>/dev/null || echo "")
+    SPA_APP_ID=$(azd env get-value AZURE_SPA_APP_ID 2>/dev/null || azd env get-value FRONTEND_SPA_CLIENT_ID 2>/dev/null || echo "")
+    
+    # Check if azd pipeline is already configured
+    AZD_PRINCIPAL=$(azd env get-value AZURE_CLIENT_ID 2>/dev/null || echo "")
+    
+    if [ -z "$AZD_PRINCIPAL" ]; then
+        echo "Running azd pipeline config to set up service principal..."
+        # Run azd pipeline config with defaults (creates SP with federated credentials)
+        azd pipeline config --provider github --principal-name "github-actions-echo-app" 2>/dev/null || {
+            echo "WARNING: azd pipeline config failed. You may need to run it manually."
+            echo "  azd pipeline config"
+            return 0
+        }
+        # Refresh the principal ID
+        AZD_PRINCIPAL=$(azd env get-value AZURE_CLIENT_ID 2>/dev/null || echo "")
+    else
+        echo "✓ Azure service principal already configured: $AZD_PRINCIPAL"
+    fi
+    
+    # Set GitHub repository variables using gh CLI
+    if [ -n "$AZD_PRINCIPAL" ]; then
+        echo "Setting GitHub repository variables..."
+        gh variable set AZURE_CLIENT_ID --body "$AZD_PRINCIPAL" --repo "$GITHUB_REPO" 2>/dev/null || true
+        gh variable set AZURE_TENANT_ID --body "$TENANT_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        gh variable set AZURE_SUBSCRIPTION_ID --body "$SUBSCRIPTION_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        echo "✓ GitHub variables configured"
+    fi
+    
+    # Set GitHub secrets for app registrations
+    if [ -n "$API_APP_ID" ] && [ -n "$SPA_APP_ID" ]; then
+        echo "Setting GitHub repository secrets..."
+        gh secret set BACKEND_API_CLIENT_ID --body "$API_APP_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        gh secret set FRONTEND_SPA_CLIENT_ID --body "$SPA_APP_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        echo "✓ GitHub secrets configured"
+    else
+        echo "WARNING: App registration IDs not found. Secrets not configured."
+        echo "  Run manually after azd up:"
+        echo "  gh secret set BACKEND_API_CLIENT_ID --body \"<api-app-id>\""
+        echo "  gh secret set FRONTEND_SPA_CLIENT_ID --body \"<spa-app-id>\""
+    fi
+    
+    echo ""
+    echo "✓ GitHub Actions CI/CD configured successfully!"
+    echo "  Push to main branch to trigger deployment."
+}
+
+# Only run CI/CD setup if gh CLI is available and authenticated
+if command -v gh &> /dev/null; then
+    if gh auth status &> /dev/null 2>&1; then
+        setup_github_cicd
     else
         echo ""
-        echo "To enable CI/CD deployments, run:"
-        echo "  ./setup_github_cicd.sh"
-        echo ""
-        echo "(Requires GitHub CLI: https://cli.github.com/)"
+        echo "NOTE: GitHub CLI not authenticated. Skipping automatic CI/CD setup."
+        echo "  To configure CI/CD later, run: gh auth login && azd pipeline config"
     fi
+else
+    echo ""
+    echo "NOTE: GitHub CLI not installed. Skipping automatic CI/CD setup."
+    echo "  Install from: https://cli.github.com/"
+    echo "  Then run: azd pipeline config"
 fi

@@ -1,8 +1,11 @@
 # Continuous Integration
-# Runs on pull requests to validate code before merge
+# Runs on pull requests and pushes to main
 name: CI
 
 on:
+  push:
+    branches:
+      - main
   pull_request:
     branches:
       - main

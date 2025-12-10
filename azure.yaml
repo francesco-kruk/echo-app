@@ -54,9 +54,10 @@ hooks:
       run: ./infra/hooks/postprovision.sh
 
 # Pipeline configuration
-# Run 'azd pipeline config' to set up GitHub Actions, then manually add secrets:
-#   - BACKEND_API_CLIENT_ID (from azd env get-value BACKEND_API_CLIENT_ID)
-#   - FRONTEND_SPA_CLIENT_ID (from azd env get-value FRONTEND_SPA_CLIENT_ID)
-# Or run './setup_github_cicd.sh' for fully automated setup
+# GitHub Actions CI/CD is automatically configured during 'azd up' if GitHub CLI is installed and authenticated.
+# Prerequisites for automatic setup:
+#   1. GitHub CLI installed: https://cli.github.com/
+#   2. Authenticated: gh auth login
+# If not using automatic setup, run manually: azd pipeline config
 pipeline:
   provider: github
