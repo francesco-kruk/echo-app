@@ -102,3 +102,97 @@ Write-Host "  Tenant ID:              $env:AZURE_TENANT_ID"
 Write-Host "  Backend API App ID:     $env:AZURE_API_APP_ID"
 Write-Host "  Frontend SPA App ID:    $SPA_APP_ID"
 Write-Host "=========================================="
+
+# ============================================
+# Automatic CI/CD Pipeline Setup
+# ============================================
+
+function Setup-GitHubCICD {
+    Write-Host ""
+    Write-Host "=========================================="
+    Write-Host "Configuring GitHub Actions CI/CD"
+    Write-Host "=========================================="
+    
+    # Get repository info
+    $REPO_URL = git remote get-url origin 2>$null
+    if ([string]::IsNullOrEmpty($REPO_URL)) {
+        Write-Host "WARNING: Not a git repository. Skipping CI/CD setup."
+        return
+    }
+    
+    $GITHUB_REPO = $REPO_URL -replace '.*[:/]([^/]+/[^/]+)(\.git)?$', '$1' -replace '\.git$', ''
+    Write-Host "Repository: $GITHUB_REPO"
+    
+    # Get values from azd environment
+    $TENANT_ID = azd env get-value AZURE_TENANT_ID 2>$null
+    $SUBSCRIPTION_ID = azd env get-value AZURE_SUBSCRIPTION_ID 2>$null
+    if ([string]::IsNullOrEmpty($SUBSCRIPTION_ID)) {
+        $SUBSCRIPTION_ID = az account show --query id -o tsv 2>$null
+    }
+    $API_APP_ID_VAL = azd env get-value AZURE_API_APP_ID 2>$null
+    if ([string]::IsNullOrEmpty($API_APP_ID_VAL)) {
+        $API_APP_ID_VAL = azd env get-value BACKEND_API_CLIENT_ID 2>$null
+    }
+    $SPA_APP_ID_VAL = azd env get-value AZURE_SPA_APP_ID 2>$null
+    if ([string]::IsNullOrEmpty($SPA_APP_ID_VAL)) {
+        $SPA_APP_ID_VAL = azd env get-value FRONTEND_SPA_CLIENT_ID 2>$null
+    }
+    
+    # Check if azd pipeline is already configured
+    $AZD_PRINCIPAL = azd env get-value AZURE_CLIENT_ID 2>$null
+    
+    if ([string]::IsNullOrEmpty($AZD_PRINCIPAL)) {
+        Write-Host "Running azd pipeline config to set up service principal..."
+        try {
+            azd pipeline config --provider github --principal-name "github-actions-echo-app" 2>$null
+            $AZD_PRINCIPAL = azd env get-value AZURE_CLIENT_ID 2>$null
+        } catch {
+            Write-Host "WARNING: azd pipeline config failed. You may need to run it manually."
+            Write-Host "  azd pipeline config"
+            return
+        }
+    } else {
+        Write-Host "✓ Azure service principal already configured: $AZD_PRINCIPAL"
+    }
+    
+    # Set GitHub repository variables using gh CLI
+    if (-not [string]::IsNullOrEmpty($AZD_PRINCIPAL)) {
+        Write-Host "Setting GitHub repository variables..."
+        gh variable set AZURE_CLIENT_ID --body $AZD_PRINCIPAL --repo $GITHUB_REPO 2>$null
+        gh variable set AZURE_TENANT_ID --body $TENANT_ID --repo $GITHUB_REPO 2>$null
+        gh variable set AZURE_SUBSCRIPTION_ID --body $SUBSCRIPTION_ID --repo $GITHUB_REPO 2>$null
+        Write-Host "✓ GitHub variables configured"
+    }
+    
+    # Set GitHub secrets for app registrations
+    if (-not [string]::IsNullOrEmpty($API_APP_ID_VAL) -and -not [string]::IsNullOrEmpty($SPA_APP_ID_VAL)) {
+        Write-Host "Setting GitHub repository secrets..."
+        gh secret set BACKEND_API_CLIENT_ID --body $API_APP_ID_VAL --repo $GITHUB_REPO 2>$null
+        gh secret set FRONTEND_SPA_CLIENT_ID --body $SPA_APP_ID_VAL --repo $GITHUB_REPO 2>$null
+        Write-Host "✓ GitHub secrets configured"
+    } else {
+        Write-Host "WARNING: App registration IDs not found. Secrets not configured."
+    }
+    
+    Write-Host ""
+    Write-Host "✓ GitHub Actions CI/CD configured successfully!"
+    Write-Host "  Push to main branch to trigger deployment."
+}
+
+# Only run CI/CD setup if gh CLI is available and authenticated
+$ghExists = Get-Command gh -ErrorAction SilentlyContinue
+if ($ghExists) {
+    $ghAuth = gh auth status 2>&1
+    if ($LASTEXITCODE -eq 0) {
+        Setup-GitHubCICD
+    } else {
+        Write-Host ""
+        Write-Host "NOTE: GitHub CLI not authenticated. Skipping automatic CI/CD setup."
+        Write-Host "  To configure CI/CD later, run: gh auth login; azd pipeline config"
+    }
+} else {
+    Write-Host ""
+    Write-Host "NOTE: GitHub CLI not installed. Skipping automatic CI/CD setup."
+    Write-Host "  Install from: https://cli.github.com/"
+    Write-Host "  Then run: azd pipeline config"
+}

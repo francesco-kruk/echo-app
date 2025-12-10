@@ -106,54 +106,168 @@ echo "  Frontend SPA App ID:    ${AZURE_SPA_APP_ID:-'Not set'}"
 echo "=========================================="
 
 # ============================================
-# CI/CD Pipeline Setup Prompt
+# Automatic CI/CD Pipeline Setup
 # ============================================
-# Only prompt for CI/CD setup in interactive mode (not in CI)
-if [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ] && [ -t 0 ]; then
+# Automatically configure GitHub Actions if gh CLI is available
+
+setup_github_cicd() {
     echo ""
     echo "=========================================="
-    echo "CI/CD Pipeline Setup"
+    echo "Configuring GitHub Actions CI/CD"
     echo "=========================================="
     
-    # Check if gh CLI is available
-    if command -v gh &> /dev/null && gh auth status &> /dev/null 2>&1; then
-        # Check if repo has GitHub Actions configured
-        REPO_URL=$(git remote get-url origin 2>/dev/null || echo "")
-        
-        if [ -n "$REPO_URL" ]; then
-            GITHUB_REPO=$(echo "$REPO_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/' | sed 's/\.git$//')
+    # Get repository info
+    REPO_URL=$(git remote get-url origin 2>/dev/null || echo "")
+    if [ -z "$REPO_URL" ]; then
+        echo "WARNING: Not a git repository. Skipping CI/CD setup."
+        return 0
+    fi
+    
+    GITHUB_REPO=$(echo "$REPO_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/' | sed 's/\.git$//')
+    echo "Repository: $GITHUB_REPO"
+    
+    # Get values from azd environment
+    TENANT_ID=$(azd env get-value AZURE_TENANT_ID 2>/dev/null || echo "")
+    SUBSCRIPTION_ID=$(azd env get-value AZURE_SUBSCRIPTION_ID 2>/dev/null || az account show --query id -o tsv 2>/dev/null || echo "")
+    API_APP_ID=$(azd env get-value AZURE_API_APP_ID 2>/dev/null || azd env get-value BACKEND_API_CLIENT_ID 2>/dev/null || echo "")
+    SPA_APP_ID=$(azd env get-value AZURE_SPA_APP_ID 2>/dev/null || azd env get-value FRONTEND_SPA_CLIENT_ID 2>/dev/null || echo "")
+    
+    # Check if azd pipeline is already configured
+    AZD_PRINCIPAL=$(azd env get-value AZURE_CLIENT_ID 2>/dev/null || echo "")
+    
+    if [ -z "$AZD_PRINCIPAL" ]; then
+        echo "Running azd pipeline config to set up service principal..."
+        # Run azd pipeline config with defaults (creates SP with federated credentials)
+        azd pipeline config --provider github --principal-name "github-actions-echo-app" 2>/dev/null || {
+            echo "WARNING: azd pipeline config failed. You may need to run it manually."
+            echo "  azd pipeline config"
+            return 0
+        }
+        # Refresh the principal ID
+        AZD_PRINCIPAL=$(azd env get-value AZURE_CLIENT_ID 2>/dev/null || echo "")
+    else
+        echo "✓ Azure service principal already configured: $AZD_PRINCIPAL"
+    fi
+    
+    # Set GitHub repository variables using gh CLI
+    if [ -n "$AZD_PRINCIPAL" ]; then
+        echo "Setting GitHub repository variables..."
+        gh variable set AZURE_CLIENT_ID --body "$AZD_PRINCIPAL" --repo "$GITHUB_REPO" 2>/dev/null || true
+        gh variable set AZURE_TENANT_ID --body "$TENANT_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        gh variable set AZURE_SUBSCRIPTION_ID --body "$SUBSCRIPTION_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        echo "✓ GitHub variables configured"
+    fi
+    
+    # Set GitHub secrets for app registrations
+    if [ -n "$API_APP_ID" ] && [ -n "$SPA_APP_ID" ]; then
+        echo "Setting GitHub repository secrets..."
+        gh secret set BACKEND_API_CLIENT_ID --body "$API_APP_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        gh secret set FRONTEND_SPA_CLIENT_ID --body "$SPA_APP_ID" --repo "$GITHUB_REPO" 2>/dev/null || true
+        echo "✓ GitHub secrets configured"
+    else
+        echo "WARNING: App registration IDs not found. Secrets not configured."
+        echo "  Run manually after azd up:"
+        echo "  gh secret set BACKEND_API_CLIENT_ID --body \"<api-app-id>\""
+        echo "  gh secret set FRONTEND_SPA_CLIENT_ID --body \"<spa-app-id>\""
+    fi
+    
+    echo ""
+    echo "✓ GitHub Actions CI/CD configured successfully!"
+    echo "  Push to main branch to trigger deployment."
+}
+
+# Function to install GitHub CLI
+install_github_cli() {
+    echo ""
+    echo "Installing GitHub CLI..."
+    
+    # Detect OS and install
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        # macOS
+        if command -v brew &> /dev/null; then
+            brew install gh
+            return $?
+        else
+            echo "Homebrew not found. Please install GitHub CLI manually:"
+            echo "  https://cli.github.com/"
+            return 1
+        fi
+    elif [[ "$OSTYPE" == "linux-gnu"* ]]; then
+        # Linux - try common package managers
+        if command -v apt-get &> /dev/null; then
+            # Debian/Ubuntu
+            (type -p wget >/dev/null || (sudo apt update && sudo apt-get install wget -y)) \
+                && sudo mkdir -p -m 755 /etc/apt/keyrings \
+                && wget -qO- https://cli.github.com/packages/githubcli-archive-keyring.gpg | sudo tee /etc/apt/keyrings/githubcli-archive-keyring.gpg > /dev/null \
+                && sudo chmod go+r /etc/apt/keyrings/githubcli-archive-keyring.gpg \
+                && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main" | sudo tee /etc/apt/sources.list.d/github-cli.list > /dev/null \
+                && sudo apt update \
+                && sudo apt install gh -y
+            return $?
+        elif command -v dnf &> /dev/null; then
+            # Fedora/RHEL
+            sudo dnf install 'dnf-command(config-manager)' -y
+            sudo dnf config-manager --add-repo https://cli.github.com/packages/rpm/gh-cli.repo
+            sudo dnf install gh -y
+            return $?
+        elif command -v yum &> /dev/null; then
+            # Older RHEL/CentOS
+            sudo yum install -y gh
+            return $?
+        else
+            echo "Could not detect package manager. Please install GitHub CLI manually:"
+            echo "  https://cli.github.com/"
+            return 1
+        fi
+    else
+        echo "Unsupported OS. Please install GitHub CLI manually:"
+        echo "  https://cli.github.com/"
+        return 1
+    fi
+}
+
+# Only run CI/CD setup if gh CLI is available and authenticated
+# Skip prompts in CI environments
+if command -v gh &> /dev/null; then
+    if gh auth status &> /dev/null 2>&1; then
+        setup_github_cicd
+    else
+        echo ""
+        echo "NOTE: GitHub CLI not authenticated. Skipping automatic CI/CD setup."
+        echo "  To configure CI/CD later, run: gh auth login && azd pipeline config"
+    fi
+elif [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ] && [ -t 0 ]; then
+    # Interactive mode - offer to install
+    echo ""
+    echo "=========================================="
+    echo "GitHub CLI not found"
+    echo "=========================================="
+    echo "GitHub CLI is required for automatic CI/CD setup."
+    echo ""
+    read -p "Would you like to install GitHub CLI now? [y/N]: " install_gh
+    
+    if [[ "$install_gh" =~ ^[Yy]$ ]]; then
+        if install_github_cli; then
+            echo ""
+            echo "✓ GitHub CLI installed successfully!"
+            echo ""
+            echo "Please authenticate with GitHub:"
+            gh auth login
             
-            # Check if secrets are already configured
-            EXISTING_SECRET=$(gh secret list --repo "$GITHUB_REPO" 2>/dev/null | grep -c "BACKEND_API_CLIENT_ID" || echo "0")
-            
-            if [ "$EXISTING_SECRET" = "0" ]; then
-                echo ""
-                echo "GitHub Actions is not fully configured for this repository."
-                echo ""
-                read -p "Would you like to set up CI/CD now? [y/N]: " setup_cicd
-                
-                if [[ "$setup_cicd" =~ ^[Yy]$ ]]; then
-                    echo ""
-                    echo "Running CI/CD setup..."
-                    ./setup_github_cicd.sh
-                else
-                    echo ""
-                    echo "To set up CI/CD later, run:"
-                    echo "  ./setup_github_cicd.sh"
-                    echo ""
-                    echo "Or use azd pipeline config and manually add secrets:"
-                    echo "  gh secret set BACKEND_API_CLIENT_ID --body \"$(azd env get-value BACKEND_API_CLIENT_ID)\""
-                    echo "  gh secret set FRONTEND_SPA_CLIENT_ID --body \"$(azd env get-value FRONTEND_SPA_CLIENT_ID)\""
-                fi
-            else
-                echo "✓ CI/CD pipeline is already configured"
+            if gh auth status &> /dev/null 2>&1; then
+                setup_github_cicd
             fi
         fi
     else
         echo ""
-        echo "To enable CI/CD deployments, run:"
-        echo "  ./setup_github_cicd.sh"
-        echo ""
-        echo "(Requires GitHub CLI: https://cli.github.com/)"
+        echo "Skipping CI/CD setup. To configure later:"
+        echo "  1. Install GitHub CLI: https://cli.github.com/"
+        echo "  2. Run: gh auth login"
+        echo "  3. Run: azd pipeline config"
     fi
+else
+    echo ""
+    echo "NOTE: GitHub CLI not installed. Skipping automatic CI/CD setup."
+    echo "  Install from: https://cli.github.com/"
+    echo "  Then run: gh auth login && azd pipeline config"
 fi
