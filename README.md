@@ -97,6 +97,15 @@ docker compose up --build
 
 > **Prerequisites:** [Node.js](https://nodejs.org/) 20+, [Python](https://python.org/) 3.12+, [uv](https://docs.astral.sh/uv/)
 
+**Quick Start (single command):**
+```bash
+./manual_setup.sh
+```
+
+This script installs dependencies and starts both services. Press Ctrl+C to stop.
+
+**Or run each service separately:**
+
 **Backend:**
 ```bash
 cd backend
