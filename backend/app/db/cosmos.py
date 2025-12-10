@@ -1,11 +1,30 @@
 """
 Cosmos DB client and connection management.
+
+Authentication modes:
+1. Azure Managed Identity (production): Uses DefaultAzureCredential for passwordless auth
+2. Azure CLI credential (local dev with Azure): Uses your `az login` session
+3. Cosmos DB Emulator (local dev): Uses emulator key for local development
+
+The authentication mode is automatically selected based on environment:
+- If COSMOS_EMULATOR=true, uses emulator with default key
+- Otherwise, uses DefaultAzureCredential (works with Managed Identity in Azure,
+  Azure CLI locally, or other credential providers)
 """
 
 import os
+import logging
 from functools import lru_cache
 from azure.cosmos import CosmosClient, DatabaseProxy, ContainerProxy
 from azure.cosmos.exceptions import CosmosResourceNotFoundError
+from azure.identity import DefaultAzureCredential
+
+logger = logging.getLogger(__name__)
+
+# Cosmos DB Emulator well-known key (public, not a secret)
+# https://learn.microsoft.com/en-us/azure/cosmos-db/emulator#authentication
+EMULATOR_KEY = "C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw=="
+EMULATOR_ENDPOINT = "https://localhost:8081"
 
 
 class CosmosDBSettings:
@@ -13,14 +32,17 @@ class CosmosDBSettings:
 
     def __init__(self):
         self.endpoint = os.getenv("COSMOS_ENDPOINT", "")
-        self.key = os.getenv("COSMOS_KEY", "")
         self.database_name = os.getenv("COSMOS_DB_NAME", "echoapp")
         self.decks_container = os.getenv("COSMOS_DECKS_CONTAINER", "decks")
         self.cards_container = os.getenv("COSMOS_CARDS_CONTAINER", "cards")
+        # Emulator mode for local development
+        self.use_emulator = os.getenv("COSMOS_EMULATOR", "false").lower() == "true"
 
     def is_configured(self) -> bool:
         """Check if Cosmos DB is configured."""
-        return bool(self.endpoint and self.key)
+        if self.use_emulator:
+            return True  # Emulator always uses well-known endpoint
+        return bool(self.endpoint)
 
 
 @lru_cache()
@@ -34,16 +56,40 @@ _database: DatabaseProxy | None = None
 
 
 def get_client() -> CosmosClient:
-    """Get or create the Cosmos DB client."""
+    """
+    Get or create the Cosmos DB client.
+    
+    Uses DefaultAzureCredential for authentication, which automatically tries:
+    1. Environment credentials (AZURE_CLIENT_ID, etc.)
+    2. Managed Identity (in Azure)
+    3. Azure CLI credential (local dev)
+    4. Other credential providers in the chain
+    
+    For local development with the emulator, set COSMOS_EMULATOR=true.
+    """
     global _client
     if _client is None:
         settings = get_settings()
         if not settings.is_configured():
             raise RuntimeError(
                 "Cosmos DB is not configured. "
-                "Set COSMOS_ENDPOINT and COSMOS_KEY environment variables."
+                "Set COSMOS_ENDPOINT environment variable, or COSMOS_EMULATOR=true for local emulator."
             )
-        _client = CosmosClient(settings.endpoint, settings.key)
+        
+        if settings.use_emulator:
+            # Use emulator with well-known key (not a real secret)
+            logger.info("Using Cosmos DB Emulator at %s", EMULATOR_ENDPOINT)
+            _client = CosmosClient(
+                EMULATOR_ENDPOINT,
+                credential=EMULATOR_KEY,
+                connection_verify=False  # Emulator uses self-signed cert
+            )
+        else:
+            # Use DefaultAzureCredential for Managed Identity / Azure CLI
+            logger.info("Using DefaultAzureCredential for Cosmos DB at %s", settings.endpoint)
+            credential = DefaultAzureCredential()
+            _client = CosmosClient(settings.endpoint, credential=credential)
+    
     return _client
 
 

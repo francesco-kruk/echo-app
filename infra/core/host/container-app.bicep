@@ -31,6 +31,12 @@ param secrets array = []
 @description('Allow insecure (HTTP) traffic for internal container-to-container communication')
 param allowInsecure bool = false
 
+@description('Enable system-assigned managed identity')
+param enableManagedIdentity bool = false
+
+@description('Minimum number of replicas (set to 1 for always-on services)')
+param minReplicas int = 0
+
 // Reference existing Container Apps Environment
 resource containerAppsEnvironment 'Microsoft.App/managedEnvironments@2023-05-01' existing = {
   name: containerAppsEnvironmentName
@@ -46,6 +52,9 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
   name: name
   location: location
   tags: tags
+  identity: enableManagedIdentity ? {
+    type: 'SystemAssigned'
+  } : null
   properties: {
     managedEnvironmentId: containerAppsEnvironment.id
     configuration: {
@@ -83,7 +92,7 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
         }
       ]
       scale: {
-        minReplicas: 0
+        minReplicas: minReplicas
         maxReplicas: 10
         rules: [
           {
@@ -103,3 +112,4 @@ resource containerApp 'Microsoft.App/containerApps@2023-05-01' = {
 output fqdn string = containerApp.properties.configuration.ingress.fqdn
 output uri string = 'https://${containerApp.properties.configuration.ingress.fqdn}'
 output name string = containerApp.name
+output principalId string = enableManagedIdentity ? containerApp.identity.principalId : ''

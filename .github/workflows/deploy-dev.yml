@@ -1,0 +1,22 @@
+# Deploy to Development Environment
+# Triggers automatically on push to main branch
+name: Deploy to Dev
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: dev
+      azure_env_name: echo-dev
+    secrets:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      BACKEND_API_CLIENT_ID: ${{ secrets.BACKEND_API_CLIENT_ID }}
+      FRONTEND_SPA_CLIENT_ID: ${{ secrets.FRONTEND_SPA_CLIENT_ID }}

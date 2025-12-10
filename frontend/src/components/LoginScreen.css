@@ -1,0 +1,159 @@
+/**
+ * Login screen styles
+ */
+
+.login-screen {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 1rem;
+}
+
+.login-card {
+  background: white;
+  border-radius: 12px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
+  max-width: 400px;
+  width: 100%;
+  overflow: hidden;
+}
+
+.login-header {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: white;
+  padding: 2rem;
+  text-align: center;
+}
+
+.login-header h1 {
+  margin: 0;
+  font-size: 2rem;
+}
+
+.login-header p {
+  margin: 0.5rem 0 0;
+  opacity: 0.9;
+  font-size: 0.95rem;
+}
+
+.login-content {
+  padding: 2rem;
+  text-align: center;
+}
+
+.login-content > p {
+  color: #666;
+  margin-bottom: 1.5rem;
+}
+
+.login-error {
+  background: #fee2e2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.login-error p {
+  color: #dc2626;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.login-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+  background: #2f2f2f;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  padding: 0.875rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.1s ease;
+  width: 100%;
+}
+
+.login-button:hover {
+  background: #1a1a1a;
+}
+
+.login-button:active {
+  transform: scale(0.98);
+}
+
+.microsoft-icon {
+  flex-shrink: 0;
+}
+
+.login-footer {
+  background: #f9fafb;
+  padding: 1rem 2rem;
+  border-top: 1px solid #e5e7eb;
+}
+
+.login-footer p {
+  color: #9ca3af;
+  font-size: 0.8rem;
+  margin: 0;
+  text-align: center;
+}
+
+/* Auth loading state */
+.auth-loading {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.auth-loading-spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 1rem;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.auth-loading p {
+  font-size: 1.1rem;
+  opacity: 0.9;
+}
+
+/* Auth error state */
+.auth-error {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  background: #fee2e2;
+  padding: 2rem;
+  text-align: center;
+}
+
+.auth-error h2 {
+  color: #dc2626;
+  margin-bottom: 1rem;
+}
+
+.auth-error p {
+  color: #7f1d1d;
+  max-width: 400px;
+}

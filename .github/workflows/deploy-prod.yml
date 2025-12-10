@@ -1,0 +1,34 @@
+# Deploy to Production Environment
+# Requires manual trigger with approval and confirmation
+name: Deploy to Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "production" to confirm deployment'
+        required: true
+        type: string
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate confirmation
+        if: ${{ inputs.confirm != 'production' }}
+        run: |
+          echo "❌ Deployment cancelled. You must type 'production' to confirm."
+          exit 1
+
+  deploy:
+    needs: validate
+    uses: ./.github/workflows/deploy.yml
+    with:
+      environment: prod
+      azure_env_name: echo-prod
+    secrets:
+      AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+      AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+      AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      BACKEND_API_CLIENT_ID: ${{ secrets.BACKEND_API_CLIENT_ID }}
+      FRONTEND_SPA_CLIENT_ID: ${{ secrets.FRONTEND_SPA_CLIENT_ID }}

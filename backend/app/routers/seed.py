@@ -1,9 +1,11 @@
 """Seed API router for populating sample data."""
 
-from fastapi import APIRouter, Header, status
+from typing import Annotated
+from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel
 from app.models import DeckCreate, CardCreate
 from app.repositories import get_deck_repository, get_card_repository
+from app.auth import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/seed", tags=["seed"])
 
@@ -73,7 +75,9 @@ class SeedResponse(BaseModel):
 
 
 @router.post("", response_model=SeedResponse, status_code=status.HTTP_201_CREATED)
-async def seed_sample_data(x_user_id: str = Header(...)) -> SeedResponse:
+async def seed_sample_data(
+    user: Annotated[CurrentUser, Depends(get_current_user)]
+) -> SeedResponse:
     """Seed the database with sample data for the current user."""
     deck_repo = get_deck_repository()
     card_repo = get_card_repository()
@@ -83,13 +87,13 @@ async def seed_sample_data(x_user_id: str = Header(...)) -> SeedResponse:
 
     for deck_create in SAMPLE_DECKS:
         # Create deck
-        deck = deck_repo.create(deck_create, x_user_id)
+        deck = deck_repo.create(deck_create, user.user_id)
         decks_created += 1
 
         # Add cards to deck
         cards_for_deck = SAMPLE_CARDS.get(deck_create.name, [])
         for card_create in cards_for_deck:
-            card_repo.create(deck.id, x_user_id, card_create)
+            card_repo.create(deck.id, user.user_id, card_create)
             cards_created += 1
 
     return SeedResponse(

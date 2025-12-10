@@ -13,28 +13,38 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 ## Architecture
 
 ```
-┌──────────────────────────────────────────────────────────────┐
-│                    Azure Container Apps                      │
-│                                                              │
-│  ┌─────────────────────────┐    ┌─────────────────────────┐  │
-│  │   Frontend (Public)     │    │   Backend (Public)      │  │
-│  │   ┌─────────────────┐   │    │                         │  │
-│  │   │  Nginx Static   │   │    │  FastAPI (port 8000)    │  │
-│  │   │  Serves React   │   │───>│  /decks, /cards, /seed  │  │
-│  │   │  SPA files      │   │    │                         │  │
-│  │   └─────────────────┘   │    │  (public HTTPS)         │  │
-│  └─────────────────────────┘    └─────────────────────────┘  │
-│           ▲                              │                   │
-└───────────│──────────────────────────────│───────────────────┘
-            │                              │
-     Public Internet              ┌────────▼────────┐
-                                  │   Cosmos DB     │
-                                  │  (decks/cards)  │
-                                  └─────────────────┘
+┌─────────────────────────────────────────────────────────────────┐
+│                    Container Apps Environment                    │
+│                         (VNet Integrated)                        │
+│                                                                  │
+│  ┌─────────────────────┐     ┌─────────────────────────────┐   │
+│  │     Frontend        │     │         Backend             │   │
+│  │  (external: true)   │     │    (external: false)        │   │
+│  │                     │     │                             │   │
+│  │  ┌───────────────┐  │     │  ┌───────────────────────┐  │   │
+│  │  │    Nginx      │  │────▶│  │      FastAPI          │  │   │
+│  │  │  /api proxy   │  │http │  │  (Entra auth)         │  │   │
+│  │  └───────────────┘  │     │  └───────────────────────┘  │   │
+│  │         ▲           │     │             │               │   │
+│  └─────────│───────────┘     └─────────────│───────────────┘   │
+│            │                               │                    │
+└────────────│───────────────────────────────│────────────────────┘
+             │                               │
+    HTTPS (public)                  Managed Identity
+             │                               │
+             │                               ▼
+      ┌──────┴──────┐              ┌─────────────────┐
+      │   Browser   │              │    Cosmos DB    │
+      │ (MSAL auth) │              │   (RBAC auth)   │
+      └─────────────┘              └─────────────────┘
 ```
 
-- **Frontend**: Publicly accessible, serves React SPA and calls backend API directly
-- **Backend**: Publicly accessible with CORS configured to accept requests from the frontend origin
+### Security Layers
+
+- **Network Isolation**: Backend is internal-only, not accessible from internet
+- **Authentication**: Entra ID tokens required for all API calls (validated by FastAPI)
+- **CORS**: Backend only accepts requests from frontend origin
+- **Managed Identity**: No secrets for Cosmos DB access (system-assigned identity)
 
 ## Project Structure
 
@@ -65,63 +75,131 @@ echo-app/
 
 ## Local Development
 
-### Option 1: Dev Container (Recommended)
+### Quick Start
+
+**Option A: Docker Compose (Recommended)**
+```bash
+docker compose up --build
+# Frontend: http://localhost:3000
+# Backend:  http://localhost:8000
+```
+
+**Option B: Manual Setup**
+```bash
+./manual_setup.sh
+# Frontend: http://localhost:5173
+# Backend:  http://localhost:8000
+```
+
+Both options run with authentication **disabled** by default, using the Cosmos DB emulator for data storage.
+
+### Development Options
+
+#### Option 1: Dev Container
 
 If you're using VS Code with the [Dev Containers extension](https://marketplace.visualstudio.com/items?itemName=ms-vscode-remote.remote-containers):
 
 1. Open this folder in VS Code
-2. Click "Reopen in Container" when prompted (or run `Dev Containers: Reopen in Container` from the command palette)
-3. Wait for the container to build — all dependencies are installed automatically
-4. Copy `.env.example` to `.env` in the `backend/` folder and configure Cosmos DB credentials
-5. Run services with `docker compose up` or start them manually
+2. Click "Reopen in Container" when prompted
+3. Run `docker compose up` or `./manual_setup.sh`
 
 The dev container includes Python 3.12, Node.js 20, uv, Azure CLI, and azd pre-configured.
 
-### Option 2: Docker Compose
+#### Option 2: Docker Compose
 
 > **Prerequisites:** [Docker](https://docker.com/) & Docker Compose
 
 ```bash
-# Copy and configure environment variables
-cp backend/.env.example backend/.env
-# Edit backend/.env with your Cosmos DB credentials
-
-# Start both services with hot reload
+# Start all services (frontend, backend, Cosmos DB emulator)
 docker compose up --build
 
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:8000
 ```
 
-### Option 3: Manual Setup
+Environment variables are configured via `docker-compose.yml`. To enable authentication, set `AUTH_ENABLED=true` and `VITE_AUTH_ENABLED=true` before running.
+
+#### Option 3: Manual Setup
 
 > **Prerequisites:** [Node.js](https://nodejs.org/) 20+, [Python](https://python.org/) 3.12+, [uv](https://docs.astral.sh/uv/)
 
-**Quick Start (single command):**
 ```bash
+# Quick start (auto-creates .env files if needed)
 ./manual_setup.sh
+
+# Frontend: http://localhost:5173
+# Backend:  http://localhost:8000
 ```
 
-This script installs dependencies and starts both services. Press Ctrl+C to stop.
+The script automatically:
+- Creates `backend/.env` and `frontend/.env.local` if they don't exist
+- Installs dependencies for both services
+- Checks if Cosmos DB emulator is running
+- Starts frontend and backend with hot reload
 
-**Or run each service separately:**
+**Manual service startup:**
 
-**Backend:**
 ```bash
+# Backend
 cd backend
-cp .env.example .env  # Configure Cosmos DB credentials
 uv sync
 uv run uvicorn app.main:app --reload --port 8000
-```
 
-**Frontend:**
-```bash
+# Frontend (separate terminal)
 cd frontend
 npm install
 npm run dev
 ```
 
-> **Note:** The frontend defaults to proxying API requests to `http://localhost:8000`. When running via Docker Compose, `VITE_API_TARGET` is automatically set to use the Docker hostname.
+### Local Authentication with Entra ID
+
+To test with real Entra ID authentication locally:
+
+```bash
+# 1. Create app registrations (requires Azure CLI)
+./setup_local_auth.sh
+
+# 2. Start the Cosmos DB emulator
+docker compose up cosmosdb -d
+
+# 3. Start with auth enabled
+./manual_setup.sh --auth
+# OR
+AUTH_ENABLED=true VITE_AUTH_ENABLED=true docker compose up
+```
+
+The `setup_local_auth.sh` script:
+- Creates `echo-api-local` and `echo-spa-local` app registrations
+- Configures API scopes and SPA redirect URIs
+- Updates `.env` files to enable authentication
+- Attempts to grant admin consent automatically
+
+To disable auth later: `./setup_local_auth.sh --disable`
+
+### Cosmos DB Options
+
+**Option 1: Cosmos DB Emulator (Default)**
+```bash
+# Start the emulator
+docker compose up cosmosdb -d
+
+# Set in backend/.env
+COSMOS_EMULATOR=true
+```
+
+> ⚠️ **Apple Silicon (M1/M2/M3) Note:** The Cosmos DB Linux emulator does not support ARM64 architecture. If you're on Apple Silicon, use **Option 2** (Azure Cosmos DB) instead, or run Docker with Rosetta emulation enabled.
+
+**Option 2: Azure Cosmos DB**
+```bash
+# Login to Azure
+az login
+
+# Set in backend/.env
+COSMOS_EMULATOR=false
+COSMOS_ENDPOINT=https://your-account.documents.azure.com:443/
+```
+
+> **Note:** The frontend defaults to proxying API requests to the backend. When running via Docker Compose, `VITE_API_TARGET` is automatically set to use the Docker hostname.
 
 ## Usage
 
@@ -134,7 +212,9 @@ npm run dev
 
 ## API Endpoints
 
-All endpoints require the `X-User-Id` header for user identification.
+All endpoints (except `/healthz`) require authentication:
+- **In production**: Bearer token from Entra ID (`Authorization: Bearer <token>`)
+- **In local dev with auth disabled**: `X-User-Id` header for user identification
 
 ### Decks
 
@@ -190,17 +270,35 @@ This will:
 
 ### Environment Variables
 
-The deployment automatically configures:
-- `CORS_ORIGINS` on backend → Frontend's public FQDN (allows cross-origin requests)
-- `VITE_API_URL` → Backend's public URL (baked into frontend at build time)
+The deployment automatically configures all environment variables via the `azd` provisioning process:
+
+#### Automatic Configuration Flow
+
+1. **preprovision hooks** (`infra/hooks/preprovision.sh`) create Entra ID app registrations
+2. **azd env** stores the values: `AZURE_TENANT_ID`, `BACKEND_API_CLIENT_ID`, `FRONTEND_SPA_CLIENT_ID`, etc.
+3. **Bicep parameters** (`infra/environments/*.parameters.json`) reference these values using `${VAR_NAME}` syntax
+4. **Container Apps** receive environment variables from Bicep outputs
+
+#### Configuration Reference
+
+| Variable | Source | Used By | Description |
+|----------|--------|---------|-------------|
+| `AZURE_TENANT_ID` | preprovision | Backend, Frontend | Entra ID tenant ID |
+| `BACKEND_API_CLIENT_ID` | preprovision | Bicep | Backend API app registration ID |
+| `FRONTEND_SPA_CLIENT_ID` | preprovision | Bicep | Frontend SPA app registration ID |
+| `VITE_AZURE_CLIENT_ID` | preprovision | Frontend build | SPA client ID for MSAL |
+| `VITE_TENANT_ID` | preprovision | Frontend build | Tenant ID for MSAL |
+| `VITE_API_SCOPE` | preprovision | Frontend build | API scopes for token requests |
+| `COSMOS_ENDPOINT` | Bicep output | Backend | Cosmos DB endpoint URL |
+| `AUTH_ENABLED` | Bicep | Backend | Enable/disable token validation |
 
 **Local Development:**
-- Backend: Configure Cosmos DB credentials in `backend/.env`
-- Frontend: Uses Vite proxy (`VITE_API_TARGET`) for local dev, or set `VITE_API_URL` for direct API calls
+- Backend: Copy `backend/.env.example` to `backend/.env`
+- Frontend: Copy `frontend/.env.example` to `frontend/.env.local`
+- Set `AUTH_ENABLED=false` and `VITE_AUTH_ENABLED=false` to skip Entra auth locally
 
 **Azure Deployment:**
-- `VITE_API_URL` is automatically set from Bicep outputs and passed to the frontend build
-- CORS is automatically configured to allow only the frontend origin
+- All values are automatically configured — no manual configuration needed
 
 ## Development Notes
 
@@ -212,23 +310,246 @@ The deployment automatically configures:
 
 ## CI/CD
 
-This project includes a GitHub Actions workflow for automated Azure deployments.
+This project includes GitHub Actions workflows for automated deployments with environment promotion.
 
-### Setup
+### Workflow Structure
 
-1. Run `azd pipeline config` to configure the pipeline:
+| Workflow | Trigger | Environment | Description |
+|----------|---------|-------------|-------------|
+| `ci.yml` | Pull Request | - | Runs tests and validation |
+| `deploy-dev.yml` | Push to `main` | dev | Automatic deployment to dev |
+| `deploy-staging.yml` | Manual | staging | Deploy to staging with confirmation |
+| `deploy-prod.yml` | Manual | prod | Deploy to production with confirmation |
+
+### Initial Setup
+
+Run the setup script to configure GitHub Actions with Azure:
+
+```bash
+./setup_github_cicd.sh
+```
+
+This automated script will:
+1. **Create a service principal** with federated credentials for GitHub Actions
+2. **Verify app registrations** (creates them if not present)
+3. **Configure GitHub repository** with variables and secrets
+4. **Set up federated credentials** for each environment
+
+#### Prerequisites for Setup Script
+
+- Azure CLI logged in (`az login`) with permissions to create app registrations
+- GitHub CLI authenticated (`gh auth login`) with repo permissions
+- App registrations created (run `azd up` locally first, or `./infra/hooks/preprovision.sh`)
+
+#### Manual Setup Alternative
+
+If you prefer manual setup:
+
+1. **Create a service principal:**
    ```bash
-   azd pipeline config
+   az ad sp create-for-rbac --name "github-actions-echo-app" --role contributor \
+     --scopes /subscriptions/<subscription-id> --json-auth
    ```
-   This will:
-   - Create a service principal with federated credentials
-   - Set up GitHub repository variables (`AZURE_CLIENT_ID`, `AZURE_TENANT_ID`, `AZURE_SUBSCRIPTION_ID`, `AZURE_ENV_NAME`, `AZURE_LOCATION`)
 
-2. Push to `main` to trigger automatic deployment
+2. **Configure federated credentials** in Azure Portal:
+   - Go to Entra ID > App registrations > github-actions-echo-app
+   - Add federated credentials for:
+     - `repo:owner/repo:ref:refs/heads/main`
+     - `repo:owner/repo:environment:dev`
+     - `repo:owner/repo:environment:staging`
+     - `repo:owner/repo:environment:prod`
 
-### Manual Trigger
+3. **Set GitHub repository variables:**
+   - `AZURE_CLIENT_ID` - Service principal client ID
+   - `AZURE_TENANT_ID` - Azure tenant ID
+   - `AZURE_SUBSCRIPTION_ID` - Azure subscription ID
 
-You can also trigger the workflow manually from the **Actions** tab in GitHub.
+4. **Set GitHub repository secrets:**
+   - `BACKEND_API_CLIENT_ID` - Backend API app registration ID
+   - `FRONTEND_SPA_CLIENT_ID` - Frontend SPA app registration ID
+
+### Environment Protection Rules
+
+For staging and production deployments, configure protection rules in GitHub:
+
+1. Go to **Settings** > **Environments**
+2. Create environments: `dev`, `staging`, `prod`
+3. For `staging` and `prod`:
+   - Add **required reviewers**
+   - Optionally restrict to specific branches
+
+### Deployment Workflow
+
+```
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│   Develop   │     │   Pull      │     │   Review    │     │   Deploy    │
+│   Feature   │────▶│   Request   │────▶│   & Merge   │────▶│   to Dev    │
+│             │     │   (CI runs) │     │   to main   │     │ (automatic) │
+└─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+                                                                   │
+                                        ┌──────────────────────────┘
+                                        ▼
+                    ┌─────────────────────────────────────────────────────┐
+                    │              Manual Workflow Dispatch                │
+                    ├─────────────────────────────────────────────────────┤
+                    │  Deploy to Staging  ──▶  Deploy to Production       │
+                    │  (type "staging")       (type "production")         │
+                    │       │                        │                    │
+                    │       ▼                        ▼                    │
+                    │  ┌─────────┐              ┌─────────┐               │
+                    │  │ staging │              │  prod   │               │
+                    │  │  env    │              │  env    │               │
+                    │  └─────────┘              └─────────┘               │
+                    └─────────────────────────────────────────────────────┘
+```
+
+### Triggering Deployments
+
+**Automatic (Dev):**
+- Push to `main` branch triggers deployment to dev environment
+
+**Manual (Staging/Prod):**
+```bash
+# Deploy to staging
+gh workflow run deploy-staging.yml -f confirm=staging
+
+# Deploy to production
+gh workflow run deploy-prod.yml -f confirm=production
+```
+
+Or via GitHub UI:
+1. Go to **Actions** tab
+2. Select workflow (e.g., "Deploy to Staging")
+3. Click **Run workflow**
+4. Type the confirmation word (`staging` or `production`)
+5. Click **Run workflow**
+
+### What Gets Deployed
+
+Each deployment:
+1. Initializes azd environment with app registration IDs
+2. Provisions/updates Azure infrastructure (Container Apps, Cosmos DB, etc.)
+3. Builds and pushes Docker images
+4. Deploys frontend and backend containers
+5. Updates SPA redirect URIs with deployed frontend URL
+
+### Troubleshooting
+
+**"Permission denied" during deployment:**
+- Ensure the service principal has `Contributor` role on the subscription
+- For redirect URI updates, grant `Application.ReadWrite.All` API permission
+
+**App registrations not found:**
+- Run `azd up` locally first to create the app registrations
+- Or manually run `./infra/hooks/preprovision.sh`
+
+**Environment variables missing:**
+- Check GitHub repository secrets and variables
+- Verify `BACKEND_API_CLIENT_ID` and `FRONTEND_SPA_CLIENT_ID` secrets are set
+
+## Testing
+
+### Running Unit Tests
+
+**Backend tests:**
+```bash
+cd backend
+
+# Run all tests
+uv run pytest
+
+# Run with verbose output
+uv run pytest -v
+
+# Run specific test file
+uv run pytest tests/test_auth.py
+
+# Run with coverage
+uv run pytest --cov=app --cov-report=html
+```
+
+**Test categories:**
+- `tests/test_auth.py` - JWT validation, token handling, auth configuration
+- `tests/test_cosmos.py` - Cosmos DB connection and settings
+- `tests/test_api_integration.py` - API endpoint integration tests
+
+### Smoke Tests
+
+Run end-to-end smoke tests against a running backend:
+
+```bash
+# Test against local development server
+./smoke_tests.sh
+
+# Test against custom URL
+./smoke_tests.sh https://api.example.com
+
+# Test with a real Entra ID token
+./smoke_tests.sh --with-token $(az account get-access-token --resource api://your-api-id --query accessToken -o tsv)
+
+# Verbose output
+./smoke_tests.sh --verbose
+```
+
+**What smoke tests verify:**
+- Public endpoints (health check) work without authentication
+- Protected endpoints return 401 without valid tokens
+- Protected endpoints work with X-User-Id header (auth disabled mode)
+- CRUD operations (create/delete deck)
+- Invalid token rejection
+
+### Cosmos DB Verification
+
+Verify Cosmos DB connectivity:
+
+```bash
+# Auto-detect mode (emulator or Azure)
+./verify_cosmos.sh
+
+# Test with local emulator
+./verify_cosmos.sh --emulator
+
+# Test with Azure credentials
+./verify_cosmos.sh --azure --endpoint https://your-account.documents.azure.com:443/
+```
+
+**Authentication modes verified:**
+1. **Emulator mode**: Uses well-known emulator key
+2. **Azure CLI**: Uses `az login` credentials locally
+3. **Managed Identity**: Used automatically in Azure Container Apps
+
+### CI Pipeline Tests
+
+The CI pipeline (`.github/workflows/ci.yml`) runs on every pull request:
+
+```yaml
+# Automated checks:
+- Backend: pytest, type checking, linting
+- Frontend: TypeScript build, linting
+- Infrastructure: Bicep template validation
+```
+
+### Manual API Testing
+
+**With auth disabled (local dev):**
+```bash
+# List decks
+curl -H "X-User-Id: test-user" http://localhost:8000/decks
+
+# Create a deck
+curl -X POST -H "Content-Type: application/json" -H "X-User-Id: test-user" \
+  -d '{"name": "My Deck", "description": "Test"}' \
+  http://localhost:8000/decks
+```
+
+**With auth enabled:**
+```bash
+# Get a token
+TOKEN=$(az account get-access-token --resource api://your-api-id --query accessToken -o tsv)
+
+# Use Bearer token
+curl -H "Authorization: Bearer $TOKEN" http://localhost:8000/decks
+```
 
 ## Tech Stack
 

@@ -1,6 +1,7 @@
 """Cards API router."""
 
-from fastapi import APIRouter, HTTPException, Header, status
+from typing import Annotated
+from fastapi import APIRouter, Depends, HTTPException, status
 from app.models import CardCreate, CardUpdate, CardResponse, CardListResponse
 from app.repositories import (
     get_card_repository,
@@ -8,13 +9,9 @@ from app.repositories import (
     CardNotFoundError,
     DeckNotFoundError,
 )
+from app.auth import get_current_user, CurrentUser
 
 router = APIRouter(prefix="/decks/{deck_id}/cards", tags=["cards"])
-
-
-def get_user_id(x_user_id: str = Header(..., description="User ID header")) -> str:
-    """Extract user ID from header."""
-    return x_user_id
 
 
 async def verify_deck_ownership(deck_id: str, user_id: str) -> None:
@@ -28,13 +25,14 @@ async def verify_deck_ownership(deck_id: str, user_id: str) -> None:
 
 
 @router.get("", response_model=CardListResponse)
-async def list_cards(deck_id: str, x_user_id: str = Header(...)) -> CardListResponse:
+async def list_cards(
+    deck_id: str, user: Annotated[CurrentUser, Depends(get_current_user)]
+) -> CardListResponse:
     """List all cards in a deck."""
-    user_id = get_user_id(x_user_id)
-    await verify_deck_ownership(deck_id, user_id)
+    await verify_deck_ownership(deck_id, user.user_id)
 
     repo = get_card_repository()
-    cards = repo.list_by_deck(deck_id, user_id)
+    cards = repo.list_by_deck(deck_id, user.user_id)
     return CardListResponse(
         cards=[CardResponse(**card.model_dump()) for card in cards],
         count=len(cards),
@@ -42,14 +40,15 @@ async def list_cards(deck_id: str, x_user_id: str = Header(...)) -> CardListResp
 
 
 @router.get("/{card_id}", response_model=CardResponse)
-async def get_card(deck_id: str, card_id: str, x_user_id: str = Header(...)) -> CardResponse:
+async def get_card(
+    deck_id: str, card_id: str, user: Annotated[CurrentUser, Depends(get_current_user)]
+) -> CardResponse:
     """Get a specific card by ID."""
-    user_id = get_user_id(x_user_id)
-    await verify_deck_ownership(deck_id, user_id)
+    await verify_deck_ownership(deck_id, user.user_id)
 
     repo = get_card_repository()
     try:
-        card = repo.get_by_id(card_id, user_id)
+        card = repo.get_by_id(card_id, user.user_id)
         # Verify card belongs to the specified deck
         if card.deckId != deck_id:
             raise HTTPException(
@@ -66,14 +65,15 @@ async def get_card(deck_id: str, card_id: str, x_user_id: str = Header(...)) -> 
 
 @router.post("", response_model=CardResponse, status_code=status.HTTP_201_CREATED)
 async def create_card(
-    deck_id: str, card_create: CardCreate, x_user_id: str = Header(...)
+    deck_id: str,
+    card_create: CardCreate,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> CardResponse:
     """Create a new card in a deck."""
-    user_id = get_user_id(x_user_id)
     repo = get_card_repository()
 
     try:
-        card = repo.create(deck_id, user_id, card_create)
+        card = repo.create(deck_id, user.user_id, card_create)
         return CardResponse(**card.model_dump())
     except DeckNotFoundError:
         raise HTTPException(
@@ -84,23 +84,25 @@ async def create_card(
 
 @router.put("/{card_id}", response_model=CardResponse)
 async def update_card(
-    deck_id: str, card_id: str, card_update: CardUpdate, x_user_id: str = Header(...)
+    deck_id: str,
+    card_id: str,
+    card_update: CardUpdate,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
 ) -> CardResponse:
     """Update an existing card."""
-    user_id = get_user_id(x_user_id)
-    await verify_deck_ownership(deck_id, user_id)
+    await verify_deck_ownership(deck_id, user.user_id)
 
     repo = get_card_repository()
     try:
         # Verify card belongs to the specified deck
-        existing = repo.get_by_id(card_id, user_id)
+        existing = repo.get_by_id(card_id, user.user_id)
         if existing.deckId != deck_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Card with ID {card_id} not found in deck {deck_id}",
             )
 
-        card = repo.update(card_id, user_id, card_update)
+        card = repo.update(card_id, user.user_id, card_update)
         return CardResponse(**card.model_dump())
     except CardNotFoundError:
         raise HTTPException(
@@ -110,22 +112,25 @@ async def update_card(
 
 
 @router.delete("/{card_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_card(deck_id: str, card_id: str, x_user_id: str = Header(...)) -> None:
+async def delete_card(
+    deck_id: str,
+    card_id: str,
+    user: Annotated[CurrentUser, Depends(get_current_user)],
+) -> None:
     """Delete a card."""
-    user_id = get_user_id(x_user_id)
-    await verify_deck_ownership(deck_id, user_id)
+    await verify_deck_ownership(deck_id, user.user_id)
 
     repo = get_card_repository()
     try:
         # Verify card belongs to the specified deck
-        existing = repo.get_by_id(card_id, user_id)
+        existing = repo.get_by_id(card_id, user.user_id)
         if existing.deckId != deck_id:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Card with ID {card_id} not found in deck {deck_id}",
             )
 
-        repo.delete(card_id, user_id)
+        repo.delete(card_id, user.user_id)
     except CardNotFoundError:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
