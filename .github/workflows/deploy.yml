@@ -45,6 +45,55 @@ jobs:
       FRONTEND_SPA_CLIENT_ID: ${{ secrets.FRONTEND_SPA_CLIENT_ID }}
 
     steps:
+      - name: Validate CI/CD Configuration
+        run: |
+          echo "Validating GitHub Actions CI/CD configuration..."
+          MISSING=""
+          
+          if [ -z "$AZURE_CLIENT_ID" ]; then
+            MISSING="$MISSING\n  - AZURE_CLIENT_ID (repository variable)"
+          fi
+          if [ -z "$AZURE_TENANT_ID" ]; then
+            MISSING="$MISSING\n  - AZURE_TENANT_ID (repository variable)"
+          fi
+          if [ -z "$AZURE_SUBSCRIPTION_ID" ]; then
+            MISSING="$MISSING\n  - AZURE_SUBSCRIPTION_ID (repository variable)"
+          fi
+          if [ -z "$BACKEND_API_CLIENT_ID" ]; then
+            MISSING="$MISSING\n  - BACKEND_API_CLIENT_ID (repository secret)"
+          fi
+          if [ -z "$FRONTEND_SPA_CLIENT_ID" ]; then
+            MISSING="$MISSING\n  - FRONTEND_SPA_CLIENT_ID (repository secret)"
+          fi
+          
+          if [ -n "$MISSING" ]; then
+            echo ""
+            echo "=============================================="
+            echo "❌ CI/CD SETUP REQUIRED"
+            echo "=============================================="
+            echo ""
+            echo "Missing configuration:$MISSING"
+            echo ""
+            echo "To fix this, run the setup script locally:"
+            echo ""
+            echo "  git clone <your-repo>"
+            echo "  cd echo-app"
+            echo "  az login"
+            echo "  gh auth login"
+            echo "  ./setup_github_cicd.sh"
+            echo ""
+            echo "This script will automatically:"
+            echo "  1. Create a service principal with federated credentials"
+            echo "  2. Configure GitHub repository variables and secrets"
+            echo "  3. Set up Entra ID app registrations"
+            echo ""
+            echo "For more details, see README.md > CI/CD > Initial Setup"
+            echo "=============================================="
+            exit 1
+          fi
+          
+          echo "✓ All required configuration found"
+
       - name: Checkout
         uses: actions/checkout@v4
 

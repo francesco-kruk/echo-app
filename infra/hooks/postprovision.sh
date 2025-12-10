@@ -243,19 +243,28 @@ elif [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ] && [ -t 0 ]; then
     echo "GitHub CLI not found"
     echo "=========================================="
     echo "GitHub CLI is required for automatic CI/CD setup."
+    echo "This allows automatic deployments when you push to GitHub."
     echo ""
-    read -p "Would you like to install GitHub CLI now? [y/N]: " install_gh
+    read -p "Would you like to install GitHub CLI now? [Y/n]: " install_gh
     
-    if [[ "$install_gh" =~ ^[Yy]$ ]]; then
+    if [[ ! "$install_gh" =~ ^[Nn]$ ]]; then
         if install_github_cli; then
             echo ""
             echo "✓ GitHub CLI installed successfully!"
             echo ""
             echo "Please authenticate with GitHub:"
+            echo "(Select: GitHub.com → HTTPS → Login with a web browser)"
+            echo ""
             gh auth login
             
             if gh auth status &> /dev/null 2>&1; then
                 setup_github_cicd
+            else
+                echo ""
+                echo "GitHub authentication cancelled or failed."
+                echo "To configure CI/CD later, run:"
+                echo "  gh auth login"
+                echo "  ./setup_github_cicd.sh"
             fi
         fi
     else
@@ -263,7 +272,7 @@ elif [ -z "$CI" ] && [ -z "$GITHUB_ACTIONS" ] && [ -t 0 ]; then
         echo "Skipping CI/CD setup. To configure later:"
         echo "  1. Install GitHub CLI: https://cli.github.com/"
         echo "  2. Run: gh auth login"
-        echo "  3. Run: azd pipeline config"
+        echo "  3. Run: ./setup_github_cicd.sh"
     fi
 else
     echo ""
