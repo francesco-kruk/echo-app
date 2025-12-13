@@ -7,10 +7,10 @@
 # or Cosmos DB Emulator for local development).
 #
 # Usage:
-#   ./verify_cosmos.sh                  # Auto-detect mode
-#   ./verify_cosmos.sh --emulator       # Test with local emulator
-#   ./verify_cosmos.sh --azure          # Test with Azure credentials
-#   ./verify_cosmos.sh --help
+#   ./scripts/dev/verify_cosmos.sh                  # Auto-detect mode
+#   ./scripts/dev/verify_cosmos.sh --emulator       # Test with local emulator
+#   ./scripts/dev/verify_cosmos.sh --azure          # Test with Azure credentials
+#   ./scripts/dev/verify_cosmos.sh --help
 #
 # Exit codes:
 #   0 - Connection successful
