@@ -296,55 +296,77 @@ Environment protection:
 
 ### Project Structure
 
-- `azure.yaml`: azd project manifest defining environments, hooks, and deployment.
-- `docker-compose.yml`: Local dev orchestration for frontend, backend, and Cosmos emulator.
-- `backend/`: FastAPI service code.
-       - `Dockerfile`/`Dockerfile.dev`: Images for prod and dev workflows.
-       - `pyproject.toml`: Python dependencies and tooling config (uv/pytest, etc.).
-       - `app/main.py`: FastAPI app entrypoint and router mounting.
-       - `app/auth/`: Entra ID/MSAL integration and token validation.
-              - `config.py`: Auth settings (enabled flags, tenant, client IDs, scopes).
-              - `dependencies.py`: FastAPI dependencies for auth/user extraction.
-              - `token_validator.py`: JWT validation and scope checks.
-       - `app/db/`: Cosmos DB client and connection helpers.
-              - `cosmos.py`: Client factory, emulator vs Azure setup.
-       - `app/models/`: Pydantic models for domain entities.
-              - `deck.py`/`card.py`: Data shapes and validation for decks/cards.
-       - `app/repositories/`: Data access layer to Cosmos containers.
-              - `deck_repository.py`/`card_repository.py`: CRUD operations.
-       - `app/routers/`: FastAPI routes for API endpoints.
-              - `decks.py`/`cards.py`: REST endpoints for managing decks and cards.
-              - `seed.py`: Endpoint to populate sample data.
-       - `tests/`: Backend tests (auth, cosmos, integration).
-              - `test_auth.py`: Token validation and auth config behaviors.
-              - `test_cosmos.py`: Connection and configuration coverage.
-              - `test_api_integration.py`: End-to-end API flows.
-
-- `frontend/`: React + Vite SPA served behind Nginx.
-       - `Dockerfile`: Production image (Nginx + built assets).
-       - `index.html`: Vite HTML template.
-       - `nginx.conf`/`nginx.conf.template`: Static hosting and `/api` proxy.
-       - `package.json`/`tsconfig.json`/`vite.config.ts`: Build toolchain config.
-       - `public/`: Static assets.
-       - `src/`: Application source.
-              - `main.tsx`/`App.tsx`: App bootstrap and routes.
-              - `api/client.ts`: API client with base URL and headers.
-              - `auth/`: MSAL auth wiring for SPA.
-                     - `AuthProvider.tsx`/`useAuth.ts`: Context/provider and hooks.
-                     - `config.ts`: Reads `VITE_*` auth vars and scopes.
-              - `components/`: UI components (forms, guards, login screen).
-              - `pages/`: Decks and Cards pages with styles.
-
-- `infra/`: Azure Bicep templates and environment parameters.
-       - `main.bicep`/`main.json`: Root template defining Container Apps, ACR, Cosmos.
-       - `core/host/`: Container Apps environment and app definitions.
-       - `core/data/`: Cosmos DB account, databases/containers, RBAC.
-       - `environments/*.parameters.json`: Dev/staging/prod parameterization via `azd env`.
-       - `hooks/`: Pre/post provision scripts to create app registrations and set env.
-
-- `scripts/`: Developer and CI utilities.
-       - `auth/setup_local_auth.sh`: Local Entra app registrations for dev.
-       - `ci/setup_github_cicd.sh`: Configure GitHub Actions, secrets, and environments.
-       - `dev/manual_setup.sh`: Bootstrap local env files and dependencies.
-       - `dev/smoke_tests.sh`: Basic API smoke tests locally or against a URL.
-       - `dev/verify_cosmos.sh`: Connectivity checks for emulator/Azure Cosmos.
+```
+├── azure.yaml                 # azd project manifest (environments, hooks, deployment)
+├── docker-compose.yml         # Local dev orchestration (frontend, backend, Cosmos emulator)
+│
+├── backend/                   # FastAPI service
+│   ├── Dockerfile             # Production image
+│   ├── Dockerfile.dev         # Development image with hot reload
+│   ├── pyproject.toml         # Python dependencies (uv/pytest config)
+│   ├── app/
+│   │   ├── main.py            # FastAPI entrypoint and router mounting
+│   │   ├── auth/              # Entra ID/MSAL integration
+│   │   │   ├── config.py      # Auth settings (tenant, client IDs, scopes)
+│   │   │   ├── dependencies.py # FastAPI auth dependencies
+│   │   │   └── token_validator.py # JWT validation and scope checks
+│   │   ├── db/
+│   │   │   └── cosmos.py      # Cosmos DB client (emulator vs Azure)
+│   │   ├── models/            # Pydantic domain models
+│   │   │   ├── card.py        # Card data shape and validation
+│   │   │   └── deck.py        # Deck data shape and validation
+│   │   ├── repositories/      # Data access layer
+│   │   │   ├── card_repository.py # Card CRUD operations
+│   │   │   └── deck_repository.py # Deck CRUD operations
+│   │   └── routers/           # API route handlers
+│   │       ├── cards.py       # Card endpoints
+│   │       ├── decks.py       # Deck endpoints
+│   │       └── seed.py        # Sample data population
+│   └── tests/                 # Backend tests
+│       ├── test_auth.py       # Token validation tests
+│       ├── test_cosmos.py     # DB connection tests
+│       └── test_api_integration.py # End-to-end API tests
+│
+├── frontend/                  # React + Vite SPA
+│   ├── Dockerfile             # Production image (Nginx + built assets)
+│   ├── index.html             # Vite HTML template
+│   ├── nginx.conf             # Nginx config for static hosting + /api proxy
+│   ├── package.json           # Node dependencies
+│   ├── tsconfig.json          # TypeScript config
+│   ├── vite.config.ts         # Vite build config
+│   └── src/
+│       ├── main.tsx           # App bootstrap
+│       ├── App.tsx            # Routes and layout
+│       ├── api/
+│       │   └── client.ts      # API client with base URL and headers
+│       ├── auth/              # MSAL auth wiring
+│       │   ├── AuthProvider.tsx # Auth context provider
+│       │   ├── useAuth.ts     # Auth hook
+│       │   └── config.ts      # VITE_* auth vars and scopes
+│       ├── components/        # UI components (forms, guards, login)
+│       └── pages/             # Decks and Cards pages
+│
+├── infra/                     # Azure Bicep infrastructure
+│   ├── main.bicep             # Root template (Container Apps, ACR, Cosmos)
+│   ├── main.parameters.json   # Default parameters
+│   ├── core/
+│   │   ├── host/              # Container Apps environment and app definitions
+│   │   └── data/              # Cosmos DB account, databases, RBAC
+│   ├── environments/          # Environment-specific parameters
+│   │   ├── dev.parameters.json
+│   │   ├── staging.parameters.json
+│   │   └── prod.parameters.json
+│   └── hooks/                 # Pre/post provision scripts
+│       ├── preprovision.sh    # Create app registrations
+│       └── postprovision.sh   # Set environment variables
+│
+└── scripts/                   # Developer and CI utilities
+    ├── auth/
+    │   └── setup_local_auth.sh # Local Entra app registrations
+    ├── ci/
+    │   └── setup_github_cicd.sh # Configure GitHub Actions and secrets
+    └── dev/
+        ├── manual_setup.sh    # Bootstrap local env files
+        ├── smoke_tests.sh     # API smoke tests
+        └── verify_cosmos.sh   # Cosmos connectivity checks
+```
