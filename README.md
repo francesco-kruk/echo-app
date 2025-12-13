@@ -4,9 +4,10 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 
 ## Overview
 
-- Azure-first deployment with automatic infrastructure, identity, and CI/CD
+- Azure-first deployment with automatic infrastructure and identity setup
 - Secure by default: internal backend, Entra ID auth, Managed Identity for Cosmos DB
 - Simple local dev with Docker Compose or scripts
+- CI/CD setup handled separately via dedicated script
 
 ### Features
 
@@ -45,7 +46,17 @@ A flashcard application built with React + FastAPI, designed for Azure Container
       └─────────────┘               └─────────────────┘
 ```
 
-## Quick Start (Azure)
+## Prerequisites
+
+| Scenario | Requirements |
+|----------|--------------|
+| **Azure Deployment** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running), [Azure CLI](https://docs.microsoft.com/cli/azure/install-azure-cli), [Azure Developer CLI (azd)](https://learn.microsoft.com/azure/developer/azure-developer-cli/install-azd) |
+| **Local Dev (Docker Compose)** | [Docker Desktop](https://www.docker.com/products/docker-desktop/) (running) |
+| **Local Dev (Manual)** | Python 3.12+, Node.js 20+, [uv](https://docs.astral.sh/uv/) |
+
+## Azure Deployment
+
+> **Note:** Docker must be running before executing `azd up` — the deployment builds container images locally.
 
 ```bash
 azd auth login
@@ -58,7 +69,11 @@ What gets provisioned:
 - Azure Cosmos DB with RBAC, databases/containers
 - Entra ID app registrations (API and SPA)
 - Managed Identity for backend with Cosmos RBAC
-- GitHub Actions CI/CD configured automatically
+
+To set up CI/CD after provisioning:
+```bash
+./scripts/ci/setup_github_cicd.sh
+```
 
 Outputs:
 - Public frontend URL
@@ -232,17 +247,19 @@ Verifies health checks, auth behaviors, CRUD, and invalid token handling.
 
 ## CI/CD
 
-Automatic setup during `azd up`:
-- Installs/validates GitHub CLI and authentication
-- Configures repository secrets and variables
-- Adds federated credentials for environments
+CI/CD setup is handled separately from Azure infrastructure provisioning.
 
-Setup script (if skipped or for forks):
+After running `azd up`, configure GitHub Actions:
 ```bash
 az login
 gh auth login
 ./scripts/ci/setup_github_cicd.sh
 ```
+
+What the setup script does:
+- Creates Azure service principal with federated credentials
+- Configures repository secrets and variables
+- Adds federated credentials for environments (dev, staging, prod)
 
 Workflows:
 - `ci.yml` – PR: tests and validation

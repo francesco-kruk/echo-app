@@ -54,10 +54,12 @@ hooks:
       run: ./infra/hooks/postprovision.sh
 
 # Pipeline configuration
-# GitHub Actions CI/CD is automatically configured during 'azd up' if GitHub CLI is installed and authenticated.
-# Prerequisites for automatic setup:
-#   1. GitHub CLI installed: https://cli.github.com/
-#   2. Authenticated: gh auth login
-# If not using automatic setup, run manually: azd pipeline config
+# CI/CD setup is handled separately from Azure infrastructure provisioning.
+# After running 'azd up', configure GitHub Actions by running:
+#   ./scripts/ci/setup_github_cicd.sh
+#
+# This separation ensures:
+#   - 'azd up' only handles Azure infrastructure and app registrations
+#   - CI/CD configuration is explicitly managed via the setup script
 pipeline:
   provider: github
