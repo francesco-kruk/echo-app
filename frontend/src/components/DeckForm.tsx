@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import type { Deck, DeckCreate, DeckUpdate } from '../api/client';
+import type { Deck, DeckCreate, DeckUpdate, LanguageCode } from '../api/client';
+import { SUPPORTED_LANGUAGES } from '../api/client';
 import './DeckForm.css';
 
 interface DeckFormProps {
@@ -11,6 +12,7 @@ interface DeckFormProps {
 export function DeckForm({ deck, onSubmit, onCancel }: DeckFormProps) {
   const [name, setName] = useState(deck?.name || '');
   const [description, setDescription] = useState(deck?.description || '');
+  const [language, setLanguage] = useState<LanguageCode>(deck?.language || 'es-ES');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,6 +22,7 @@ export function DeckForm({ deck, onSubmit, onCancel }: DeckFormProps) {
     if (deck) {
       setName(deck.name);
       setDescription(deck.description || '');
+      setLanguage(deck.language);
     }
   }, [deck]);
 
@@ -31,10 +34,20 @@ export function DeckForm({ deck, onSubmit, onCancel }: DeckFormProps) {
     setError(null);
 
     try {
-      await onSubmit({
-        name: name.trim(),
-        description: description.trim() || null,
-      });
+      if (isEditing) {
+        // When editing, don't include language (immutable)
+        await onSubmit({
+          name: name.trim(),
+          description: description.trim() || null,
+        } as DeckUpdate);
+      } else {
+        // When creating, include language
+        await onSubmit({
+          name: name.trim(),
+          description: description.trim() || null,
+          language,
+        } as DeckCreate);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred');
       setLoading(false);
@@ -58,6 +71,30 @@ export function DeckForm({ deck, onSubmit, onCancel }: DeckFormProps) {
               required
               autoFocus
             />
+          </div>
+          <div className="form-group">
+            <label htmlFor="language">
+              Language *
+              {isEditing && <span className="immutable-hint"> (cannot be changed)</span>}
+            </label>
+            <select
+              id="language"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as LanguageCode)}
+              disabled={isEditing}
+              required
+            >
+              {SUPPORTED_LANGUAGES.map((lang) => (
+                <option key={lang.code} value={lang.code}>
+                  {lang.name}
+                </option>
+              ))}
+            </select>
+            {!isEditing && (
+              <small className="form-hint">
+                This determines which AI tutor will help you learn this deck.
+              </small>
+            )}
           </div>
           <div className="form-group">
             <label htmlFor="description">Description</label>

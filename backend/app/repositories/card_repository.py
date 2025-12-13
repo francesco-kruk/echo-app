@@ -193,6 +193,54 @@ class CardRepository:
             return None
         return items[0]
 
+    def count_due_for_deck(self, user_id: str, deck_id: str, now_iso: str) -> int:
+        """Count the number of cards currently due for a deck.
+        
+        Args:
+            user_id: The user ID
+            deck_id: The deck ID
+            now_iso: Current timestamp in ISO format
+            
+        Returns:
+            Number of cards currently due (including legacy cards without dueAt)
+        """
+        # Count legacy cards without dueAt (treated as due now)
+        legacy_query = (
+            "SELECT VALUE COUNT(1) FROM c "
+            "WHERE c.deckId = @deckId AND c.userId = @userId AND NOT IS_DEFINED(c.dueAt)"
+        )
+        legacy_params = [
+            {"name": "@deckId", "value": deck_id},
+            {"name": "@userId", "value": user_id},
+        ]
+        legacy_count = list(
+            self.container.query_items(
+                query=legacy_query,
+                parameters=legacy_params,
+                partition_key=user_id,
+            )
+        )[0]
+
+        # Count cards with dueAt <= now
+        due_query = (
+            "SELECT VALUE COUNT(1) FROM c "
+            "WHERE c.deckId = @deckId AND c.userId = @userId AND c.dueAt <= @nowIso"
+        )
+        due_params = [
+            {"name": "@deckId", "value": deck_id},
+            {"name": "@userId", "value": user_id},
+            {"name": "@nowIso", "value": now_iso},
+        ]
+        due_count = list(
+            self.container.query_items(
+                query=due_query,
+                parameters=due_params,
+                partition_key=user_id,
+            )
+        )[0]
+
+        return legacy_count + due_count
+
     def delete(self, card_id: str, user_id: str) -> None:
         """Delete a card by ID."""
         try:

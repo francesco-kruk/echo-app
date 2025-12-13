@@ -16,7 +16,7 @@ createRoot(document.getElementById('root')!).render(
         <HashRouter>
           <Routes>
             <Route path="/" element={<App />}>
-              <Route index element={<Navigate to="/decks" replace />} />
+              <Route index element={<Navigate to="/learn" replace />} />
               <Route path="decks" element={<DecksPage />} />
               <Route path="decks/:deckId/cards" element={<CardsPage />} />
               <Route path="learn" element={<LearnPage />} />

@@ -11,10 +11,11 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 
 ### Features
 
-- 📚 **Deck Management** – Create, edit, and delete flashcard decks
+- 📚 **Deck Management** – Create, edit, and delete flashcard decks with language selection
 - 🃏 **Card Management** – Add, edit, and delete cards within decks
 - 🔄 **Interactive Flashcards** – Click to flip cards and reveal answers
 - 🧠 **Spaced Repetition (SRS)** – Learn cards with SM-2-based scheduling (Again/Hard/Good/Easy)
+- 🤖 **AI Tutor Agents** – Chat-based learning with persona-driven language tutors powered by Azure OpenAI
 - 📦 **Sample Data** – One-click button to populate sample flashcard decks
 - 🌐 **Azure Ready** – Deploys to Azure Container Apps with Cosmos DB
 
@@ -33,18 +34,18 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 │  │  │    Nginx      │  │────>│  │      FastAPI        │  │   │
 │  │  │  /api proxy   │  │http │  │    (Entra auth)     │  │   │
 │  │  └───────────────┘  │     │  └─────────────────────┘  │   │
-│  │         ▲           │     │             │             │   │
-│  └─────────│───────────┘     └─────────────│─────────────┘   │
-│            │                               │                 │
-└────────────│───────────────────────────────│─────────────────┘
-             │                               │
-      HTTPS (public)                  Managed Identity
-             │                               │
-             │                               ▼
-      ┌─────────────┐               ┌─────────────────┐
-      │   Browser   │               │    Cosmos DB    │
-      │ (MSAL auth) │               │   (RBAC auth)   │
-      └─────────────┘               └─────────────────┘
+│  │         ▲           │     │         │       │         │   │
+│  └─────────│───────────┘     └─────────│───────│─────────┘   │
+│            │                           │       │             │
+└────────────│───────────────────────────│───────│─────────────┘
+             │                           │       │
+      HTTPS (public)                     │       │
+             │                   Managed Identity (both)
+             │                           │       │
+      ┌─────────────┐        ┌───────────▼─┐   ┌─▼──────────────┐
+      │   Browser   │        │  Cosmos DB  │   │  Azure OpenAI  │
+      │ (MSAL auth) │        │ (RBAC auth) │   │ (Agent Tutors) │
+      └─────────────┘        └─────────────┘   └────────────────┘
 ```
 
 ## Prerequisites
@@ -68,8 +69,9 @@ What gets provisioned:
 - Azure Container Apps (frontend + backend) and Container Apps Environment
 - Azure Container Registry
 - Azure Cosmos DB with RBAC, databases/containers
+- Azure OpenAI with GPT-4o deployment and RBAC for AI tutoring
 - Entra ID app registrations (API and SPA)
-- Managed Identity for backend with Cosmos RBAC
+- Managed Identity for backend with Cosmos and OpenAI RBAC
 
 To set up CI/CD after provisioning:
 ```bash
@@ -94,6 +96,7 @@ How values are set:
 Environment variables:
 - **Auth:** `AZURE_TENANT_ID`, `BACKEND_API_CLIENT_ID`, `FRONTEND_SPA_CLIENT_ID`, `AUTH_ENABLED`, `VITE_AUTH_ENABLED`, `VITE_API_SCOPE`
 - **Backend:** `COSMOS_ENDPOINT`, `CORS_ORIGINS`
+- **Azure OpenAI:** `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_RESPONSES_DEPLOYMENT_NAME` (auto-provisioned, uses Managed Identity)
 - **Frontend:** `VITE_API_URL` (prod), `/api` proxy (local)
 
 Local `.env` files:
@@ -186,8 +189,10 @@ Connectivity verification:
 5. Click on a card to flip and reveal the answer
 6. Use ✏️ and 🗑️ to edit or delete decks/cards
 7. Click "Learn" to start a spaced repetition session:
-   - Select a deck to study
-   - Review cards and grade them: Again (2 min), Hard (10 min), Good (24 hrs), Easy (4 days)
+   - Select an AI tutor agent (each deck has a persona based on its language)
+   - Chat with the tutor about your flashcard – the agent prompts and guides you
+   - Once you answer correctly (or request the answer to be revealed), grade buttons appear
+   - Grade the card: Again (2 min), Hard (10 min), Good (24 hrs), Easy (4 days)
    - Cards reappear based on your grades
 
 ## API Reference
@@ -216,12 +221,15 @@ All endpoints (except `/healthz`) require authentication:
 | `/decks/{deck_id}/cards/{id}` | PUT    | Update a card          |
 | `/decks/{deck_id}/cards/{id}` | DELETE | Delete a card          |
 
-### Learn (Spaced Repetition)
+### Learn (Spaced Repetition + AI Tutoring)
 
-| Endpoint        | Method | Description                                      |
-|-----------------|--------|--------------------------------------------------|
-| `/learn/next`   | GET    | Get next due card for a deck (`?deckId=...`)     |
-| `/learn/review` | POST   | Submit a review grade (again/hard/good/easy)     |
+| Endpoint        | Method | Description                                          |
+|-----------------|--------|------------------------------------------------------|
+| `/learn/agents` | GET    | List available tutor agents (decks with due cards)   |
+| `/learn/start`  | POST   | Start tutoring session for a deck                    |
+| `/learn/chat`   | POST   | Send message to tutor and receive verdict            |
+| `/learn/next`   | GET    | Get next due card for a deck (`?deckId=...`)         |
+| `/learn/review` | POST   | Submit a review grade (resets chat state)            |
 
 ### Other
 
@@ -298,12 +306,14 @@ Environment protection:
 - **App registrations not found:** Run `azd up` locally or `./infra/hooks/preprovision.sh`.
 - **Environment variables missing:** Check repository secrets/variables; verify `BACKEND_API_CLIENT_ID` and `FRONTEND_SPA_CLIENT_ID` are set.
 - **Cosmos emulator issues:** Confirm container running; on ARM64 use Azure Cosmos DB or Rosetta.
+- **Azure OpenAI deployment fails:** GPT-4o may not be available in all regions. Set `openAILocation` parameter to a supported region (e.g., `eastus2`, `swedencentral`).
 
 ## Tech Stack
 
 - **Frontend:** React 18, Vite, TypeScript, React Router
 - **Backend:** FastAPI, Uvicorn, Pydantic
 - **Database:** Azure Cosmos DB
+- **AI:** Azure OpenAI (via Microsoft Agent Framework)
 - **Infrastructure:** Azure Container Apps, Bicep, azd
 
 ### Project Structure
@@ -322,12 +332,17 @@ Environment protection:
 │   │   │   ├── config.py      # Auth settings (tenant, client IDs, scopes)
 │   │   │   ├── dependencies.py # FastAPI auth dependencies
 │   │   │   └── token_validator.py # JWT validation and scope checks
+│   │   ├── agents/            # AI tutoring agent framework
+│   │   │   ├── foundry_client.py # Azure OpenAI / Agent Framework integration
+│   │   │   ├── personas.py    # Language-specific tutor personas
+│   │   │   └── session_store.py # TTL-based chat session state
 │   │   ├── db/
 │   │   │   └── cosmos.py      # Cosmos DB client (emulator vs Azure)
 │   │   ├── models/            # Pydantic domain models
 │   │   │   ├── card.py        # Card data shape and validation (+ SRS fields)
-│   │   │   ├── deck.py        # Deck data shape and validation
-│   │   │   └── learn.py       # Learn API request/response models
+│   │   │   ├── deck.py        # Deck data shape and validation (+ language)
+│   │   │   ├── learn.py       # Learn API request/response models
+│   │   │   └── learn_agents.py # Agent chat models and verdicts
 │   │   ├── repositories/      # Data access layer
 │   │   │   ├── card_repository.py # Card CRUD + SRS due queries
 │   │   │   └── deck_repository.py # Deck CRUD operations
@@ -343,6 +358,8 @@ Environment protection:
 │       ├── test_auth.py       # Token validation tests
 │       ├── test_cosmos.py     # DB connection tests
 │       ├── test_api_integration.py # End-to-end API tests
+│       ├── test_deck_language.py # Deck language immutability tests
+│       ├── test_learn_agents_chat.py # Agent chat and session tests
 │       ├── test_learn_api.py  # Learn endpoint tests
 │       ├── test_sm2.py        # SM-2 algorithm tests
 │       └── test_srs_time.py   # Time helper tests
@@ -370,9 +387,10 @@ Environment protection:
 │           └── LearnPage.tsx  # SRS learning session UI
 │
 ├── infra/                     # Azure Bicep infrastructure
-│   ├── main.bicep             # Root template (Container Apps, ACR, Cosmos)
+│   ├── main.bicep             # Root template (Container Apps, ACR, Cosmos, OpenAI)
 │   ├── main.parameters.json   # Default parameters
 │   ├── core/
+│   │   ├── ai/                # Azure OpenAI account, deployment, RBAC
 │   │   ├── host/              # Container Apps environment and app definitions
 │   │   └── data/              # Cosmos DB account, databases, RBAC
 │   ├── environments/          # Environment-specific parameters

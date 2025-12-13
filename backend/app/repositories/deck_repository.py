@@ -56,6 +56,7 @@ class DeckRepository:
             userId=user_id,
             name=deck_create.name,
             description=deck_create.description,
+            language=deck_create.language,
         )
         created_item = self.container.create_item(body=deck.model_dump())
         return Deck(**created_item)

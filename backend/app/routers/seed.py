@@ -15,14 +15,17 @@ SAMPLE_DECKS = [
     DeckCreate(
         name="Spanish Basics",
         description="Essential Spanish words and phrases for beginners",
+        language="es-ES",  # Spanish deck
     ),
     DeckCreate(
         name="French Essentials",
         description="Common French vocabulary for everyday conversations",
+        language="fr-FR",  # French deck
     ),
     DeckCreate(
         name="German Fundamentals",
         description="Core German words and expressions",
+        language="de-DE",  # German deck
     ),
 ]
 

@@ -24,6 +24,9 @@ param backendApiClientId string = ''
 @description('Frontend SPA App Registration Client ID')
 param frontendSpaClientId string = ''
 
+@description('Azure OpenAI location (some regions may not have capacity)')
+param openAILocation string = ''
+
 // Tags that should be applied to all resources
 var tags = {
   'azd-env-name': environmentName
@@ -34,6 +37,7 @@ var cosmosAccountName = 'cosmos-${environmentName}'
 var cosmosDatabaseName = 'echoapp'
 var cosmosDecksContainerName = 'decks'
 var cosmosCardsContainerName = 'cards'
+var openAIAccountName = 'openai-${environmentName}'
 
 // Organize resources in a resource group
 resource rg 'Microsoft.Resources/resourceGroups@2022-09-01' = {
@@ -68,6 +72,23 @@ module cosmos './core/data/cosmos.bicep' = {
     decksContainerName: cosmosDecksContainerName
     cardsContainerName: cosmosCardsContainerName
     enableServerless: true
+  }
+}
+
+// Azure OpenAI account and model deployment
+module openai './core/ai/openai.bicep' = {
+  name: 'openai'
+  scope: rg
+  params: {
+    accountName: openAIAccountName
+    // Use specified location or fall back to resource group location
+    // Note: Azure OpenAI has limited regional availability
+    location: !empty(openAILocation) ? openAILocation : location
+    tags: tags
+    deploymentName: 'gpt-4o'
+    modelName: 'gpt-4o'
+    modelVersion: '2024-11-20'
+    deploymentCapacity: 10
   }
 }
 
@@ -154,6 +175,22 @@ module backend './core/host/container-app.bicep' = {
         name: 'AZURE_API_APP_ID'
         value: backendApiClientId
       }
+      {
+        // Azure OpenAI endpoint for AI tutoring agents
+        name: 'AZURE_OPENAI_ENDPOINT'
+        value: openai.outputs.endpoint
+      }
+      {
+        // Azure OpenAI deployment name for chat model
+        name: 'AZURE_OPENAI_RESPONSES_DEPLOYMENT_NAME'
+        value: openai.outputs.deploymentName
+      }
+      {
+        // Azure OpenAI API version for Responses API
+        // The Agent Framework Azure client requires the literal value "preview"
+        name: 'AZURE_OPENAI_API_VERSION'
+        value: 'preview'
+      }
     ]
   }
 }
@@ -167,6 +204,20 @@ module cosmosRbac './core/data/cosmos-rbac.bicep' = {
     accountName: cosmosAccountName
     principalId: backend.outputs.principalId
   }
+}
+
+// Azure OpenAI RBAC role assignment for backend managed identity
+// Grants "Cognitive Services OpenAI User" role for AI tutoring agents
+module openaiRbac './core/ai/openai-rbac.bicep' = {
+  name: 'openai-rbac'
+  scope: rg
+  params: {
+    accountName: openAIAccountName
+    principalId: backend.outputs.principalId
+  }
+  dependsOn: [
+    openai  // Ensure OpenAI account is fully provisioned before RBAC assignment
+  ]
 }
 
 output AZURE_CONTAINER_REGISTRY_ENDPOINT string = containerApps.outputs.registryLoginServer

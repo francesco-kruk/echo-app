@@ -16,7 +16,7 @@ function App() {
     <div className="app">
       <nav className="app-nav">
         <div className="nav-header">
-          <Link to="/decks" className="app-title">
+          <Link to="/learn" className="app-title">
             <h1>📚 Echo App</h1>
           </Link>
 
