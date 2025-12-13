@@ -14,6 +14,7 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 - 📚 **Deck Management** – Create, edit, and delete flashcard decks
 - 🃏 **Card Management** – Add, edit, and delete cards within decks
 - 🔄 **Interactive Flashcards** – Click to flip cards and reveal answers
+- 🧠 **Spaced Repetition (SRS)** – Learn cards with SM-2-based scheduling (Again/Hard/Good/Easy)
 - 📦 **Sample Data** – One-click button to populate sample flashcard decks
 - 🌐 **Azure Ready** – Deploys to Azure Container Apps with Cosmos DB
 
@@ -184,6 +185,10 @@ Connectivity verification:
 4. Click on a deck to view its cards
 5. Click on a card to flip and reveal the answer
 6. Use ✏️ and 🗑️ to edit or delete decks/cards
+7. Click "Learn" to start a spaced repetition session:
+   - Select a deck to study
+   - Review cards and grade them: Again (2 min), Hard (10 min), Good (24 hrs), Easy (4 days)
+   - Cards reappear based on your grades
 
 ## API Reference
 
@@ -210,6 +215,13 @@ All endpoints (except `/healthz`) require authentication:
 | `/decks/{deck_id}/cards/{id}` | GET    | Get card by ID         |
 | `/decks/{deck_id}/cards/{id}` | PUT    | Update a card          |
 | `/decks/{deck_id}/cards/{id}` | DELETE | Delete a card          |
+
+### Learn (Spaced Repetition)
+
+| Endpoint        | Method | Description                                      |
+|-----------------|--------|--------------------------------------------------|
+| `/learn/next`   | GET    | Get next due card for a deck (`?deckId=...`)     |
+| `/learn/review` | POST   | Submit a review grade (again/hard/good/easy)     |
 
 ### Other
 
@@ -313,19 +325,27 @@ Environment protection:
 │   │   ├── db/
 │   │   │   └── cosmos.py      # Cosmos DB client (emulator vs Azure)
 │   │   ├── models/            # Pydantic domain models
-│   │   │   ├── card.py        # Card data shape and validation
-│   │   │   └── deck.py        # Deck data shape and validation
+│   │   │   ├── card.py        # Card data shape and validation (+ SRS fields)
+│   │   │   ├── deck.py        # Deck data shape and validation
+│   │   │   └── learn.py       # Learn API request/response models
 │   │   ├── repositories/      # Data access layer
-│   │   │   ├── card_repository.py # Card CRUD operations
+│   │   │   ├── card_repository.py # Card CRUD + SRS due queries
 │   │   │   └── deck_repository.py # Deck CRUD operations
-│   │   └── routers/           # API route handlers
-│   │       ├── cards.py       # Card endpoints
-│   │       ├── decks.py       # Deck endpoints
-│   │       └── seed.py        # Sample data population
+│   │   ├── routers/           # API route handlers
+│   │   │   ├── cards.py       # Card endpoints
+│   │   │   ├── decks.py       # Deck endpoints
+│   │   │   ├── learn.py       # Learn/SRS endpoints
+│   │   │   └── seed.py        # Sample data population
+│   │   └── srs/               # Spaced repetition system
+│   │       ├── sm2.py         # SM-2 algorithm implementation
+│   │       └── time.py        # UTC time helpers
 │   └── tests/                 # Backend tests
 │       ├── test_auth.py       # Token validation tests
 │       ├── test_cosmos.py     # DB connection tests
-│       └── test_api_integration.py # End-to-end API tests
+│       ├── test_api_integration.py # End-to-end API tests
+│       ├── test_learn_api.py  # Learn endpoint tests
+│       ├── test_sm2.py        # SM-2 algorithm tests
+│       └── test_srs_time.py   # Time helper tests
 │
 ├── frontend/                  # React + Vite SPA
 │   ├── Dockerfile             # Production image (Nginx + built assets)
@@ -344,7 +364,10 @@ Environment protection:
 │       │   ├── useAuth.ts     # Auth hook
 │       │   └── config.ts      # VITE_* auth vars and scopes
 │       ├── components/        # UI components (forms, guards, login)
-│       └── pages/             # Decks and Cards pages
+│       └── pages/             # Decks, Cards, and Learn pages
+│           ├── DecksPage.tsx  # Deck list and management
+│           ├── CardsPage.tsx  # Card list and management
+│           └── LearnPage.tsx  # SRS learning session UI
 │
 ├── infra/                     # Azure Bicep infrastructure
 │   ├── main.bicep             # Root template (Container Apps, ACR, Cosmos)

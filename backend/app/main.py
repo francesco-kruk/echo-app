@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
 from app.db import get_settings, verify_connection, close_client
-from app.routers import decks_router, cards_router, seed_router
+from app.routers import decks_router, cards_router, seed_router, learn_router
 from app.auth import get_auth_settings
 
 load_dotenv()
@@ -66,6 +66,7 @@ app.add_middleware(
 app.include_router(decks_router)
 app.include_router(cards_router)
 app.include_router(seed_router)
+app.include_router(learn_router)
 
 
 @app.get("/")

@@ -1,10 +1,16 @@
-import { Outlet, Link } from 'react-router-dom'
+import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthState, authConfig, isAuthConfigured } from './auth'
 import './App.css'
 
 function App() {
   const { user, logout, isAuthenticated } = useAuthState();
   const showUserMenu = authConfig.authEnabled && isAuthConfigured() && isAuthenticated;
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  const path = location.pathname;
+  const showDecksToLearn = path === '/decks';
+  const showLearnToDecks = path === '/learn';
 
   return (
     <div className="app">
@@ -13,6 +19,18 @@ function App() {
           <Link to="/decks" className="app-title">
             <h1>📚 Echo App</h1>
           </Link>
+
+          {showDecksToLearn && (
+            <button className="secondary" onClick={() => navigate('/learn')}>
+              Learn
+            </button>
+          )}
+          {showLearnToDecks && (
+            <button className="secondary" onClick={() => navigate('/decks')}>
+              Decks
+            </button>
+          )}
+
           {showUserMenu && user && (
             <div className="user-menu">
               <span className="user-name" title={user.email}>

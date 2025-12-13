@@ -88,6 +88,12 @@ export interface Card {
   userId: string;
   createdAt: string;
   updatedAt: string;
+
+  dueAt: string;
+  easeFactor: number;
+  repetitions: number;
+  intervalDays: number;
+  lastReviewedAt: string | null;
 }
 
 export interface CardCreate {
@@ -109,6 +115,19 @@ export interface SeedResponse {
   message: string;
   decks_created: number;
   cards_created: number;
+}
+
+export interface LearnNextResponse {
+  card: Card | null;
+  nextDueAt: string | null;
+}
+
+export type LearnGrade = 'again' | 'hard' | 'good' | 'easy';
+
+export interface LearnReviewRequest {
+  deckId: string;
+  cardId: string;
+  grade: LearnGrade;
 }
 
 /**
@@ -268,6 +287,26 @@ export async function seedSampleData(userId?: string): Promise<SeedResponse> {
     '/seed',
     {
       method: 'POST',
+    },
+    userId
+  );
+}
+
+// Learn (SRS) API functions
+export async function getLearnNext(deckId: string, userId?: string): Promise<LearnNextResponse> {
+  const params = new URLSearchParams({ deckId });
+  return apiFetch<LearnNextResponse>(`/learn/next?${params.toString()}`, {}, userId);
+}
+
+export async function postLearnReview(
+  request: LearnReviewRequest,
+  userId?: string
+): Promise<Card> {
+  return apiFetch<Card>(
+    '/learn/review',
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
     },
     userId
   );
