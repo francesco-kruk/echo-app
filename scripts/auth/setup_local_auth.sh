@@ -9,15 +9,16 @@
 #   - Permissions to create app registrations in your Entra tenant
 #
 # Usage:
-#   ./setup_local_auth.sh          # Create app registrations and enable auth
-#   ./setup_local_auth.sh --disable # Disable auth (reset to default)
-#   ./setup_local_auth.sh --status  # Show current auth configuration
+#   ./scripts/auth/setup_local_auth.sh           # Create app registrations and enable auth
+#   ./scripts/auth/setup_local_auth.sh --disable # Disable auth (reset to default)
+#   ./scripts/auth/setup_local_auth.sh --status  # Show current auth configuration
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_ENV="$SCRIPT_DIR/backend/.env"
-FRONTEND_ENV="$SCRIPT_DIR/frontend/.env.local"
+# Anchor to repo root so the script works from anywhere
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+BACKEND_ENV="$REPO_ROOT/backend/.env"
+FRONTEND_ENV="$REPO_ROOT/frontend/.env.local"
 
 # Colors for output
 RED='\033[0;31m'
@@ -298,10 +299,10 @@ EOF
     
     # Ensure .env files exist
     if [ ! -f "$BACKEND_ENV" ]; then
-        cp "$SCRIPT_DIR/backend/.env.example" "$BACKEND_ENV"
+        cp "$REPO_ROOT/backend/.env.example" "$BACKEND_ENV"
     fi
     if [ ! -f "$FRONTEND_ENV" ]; then
-        cp "$SCRIPT_DIR/frontend/.env.example" "$FRONTEND_ENV"
+        cp "$REPO_ROOT/frontend/.env.example" "$FRONTEND_ENV"
     fi
     
     # Update backend .env
@@ -339,11 +340,11 @@ EOF
     echo "  2. Start the application:"
     echo "     docker compose up"
     echo "     # OR"
-    echo "     ./manual_setup.sh"
+    echo "     ./scripts/dev/manual_setup.sh"
     echo ""
     echo "  3. Open http://localhost:3000 and sign in with your Entra account"
     echo ""
-    echo "To disable auth later, run: ./setup_local_auth.sh --disable"
+    echo "To disable auth later, run: ./scripts/auth/setup_local_auth.sh --disable"
 }
 
 # Main script

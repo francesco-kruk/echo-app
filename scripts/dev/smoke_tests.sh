@@ -10,10 +10,10 @@
 # 4. Cosmos DB connection is working
 #
 # Usage:
-#   ./smoke_tests.sh                    # Run against local dev (http://localhost:8000)
-#   ./smoke_tests.sh https://api.example.com  # Run against custom URL
-#   ./smoke_tests.sh --with-token <token>     # Test with a real Entra token
-#   ./smoke_tests.sh --help
+#   ./scripts/dev/smoke_tests.sh                    # Run against local dev (http://localhost:8000)
+#   ./scripts/dev/smoke_tests.sh https://api.example.com  # Run against custom URL
+#   ./scripts/dev/smoke_tests.sh --with-token <token>     # Test with a real Entra token
+#   ./scripts/dev/smoke_tests.sh --help
 #
 # Exit codes:
 #   0 - All tests passed
@@ -59,7 +59,7 @@ while [[ $# -gt 0 ]]; do
             echo "Examples:"
             echo "  $0                           # Test local dev server"
             echo "  $0 http://localhost:8000     # Test specific URL"
-            echo "  $0 --with-token \$(az account get-access-token --resource api://xxx --query accessToken -o tsv)"
+            echo "  $0 --with-token $(az account get-access-token --resource api://xxx --query accessToken -o tsv)"
             exit 0
             ;;
         http*|https*)

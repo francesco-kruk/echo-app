@@ -13,6 +13,9 @@
 
 set -e
 
+# Anchor to repo root so the script works from anywhere
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || cd "$(dirname "${BASH_SOURCE[0]}")"/.. && pwd)"
+
 # Colors for output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -65,7 +68,8 @@ get_repo_info() {
     if git remote get-url origin &> /dev/null; then
         REPO_URL=$(git remote get-url origin)
         # Extract owner/repo from URL (handles both HTTPS and SSH)
-        GITHUB_REPO=$(echo "$REPO_URL" | sed -E 's/.*[:/]([^/]+\/[^/]+)(\.git)?$/\1/' | sed 's/\.git$//')
+        GITHUB_REPO=$(echo "$REPO_URL" | sed -E 's/.*[:/]([^/]+\/[^
+/]+)(\.git)?$/\1/' | sed 's/\.git$//')
     fi
     
     if [ -z "$GITHUB_REPO" ]; then
@@ -181,12 +185,7 @@ setup_federated_credential() {
     
     az ad app federated-credential create \
         --id "$app_object_id" \
-        --parameters "{
-            \"name\": \"$name\",
-            \"issuer\": \"https://token.actions.githubusercontent.com\",
-            \"subject\": \"repo:${GITHUB_REPO}:$subject\",
-            \"audiences\": [\"api://AzureADTokenExchange\"]
-        }" > /dev/null 2>&1 || echo "    Warning: Could not create credential (may already exist)"
+        --parameters "{\n            \"name\": \"$name\",\n            \"issuer\": \"https://token.actions.githubusercontent.com\",\n            \"subject\": \"repo:${GITHUB_REPO}:$subject\",\n            \"audiences\": [\"api://AzureADTokenExchange\"]\n        }" > /dev/null 2>&1 || echo "    Warning: Could not create credential (may already exist)"
 }
 
 # Create or get Entra ID app registrations
@@ -202,10 +201,10 @@ setup_app_registrations() {
     
     if [ -z "$BACKEND_API_CLIENT_ID" ] || [ "$BACKEND_API_CLIENT_ID" == "null" ]; then
         echo -e "${YELLOW}Backend API app registration not found.${NC}"
-        echo "Run 'azd up' locally first to create app registrations, or run './infra/hooks/preprovision.sh'"
+        echo "Run 'azd up' locally first to create app registrations, or run '$REPO_ROOT/infra/hooks/preprovision.sh'"
         read -p "Would you like to run the preprovision script now? [Y/n]: " confirm
         if [[ ! "$confirm" =~ ^[Nn]$ ]]; then
-            ./infra/hooks/preprovision.sh
+            "$REPO_ROOT/infra/hooks/preprovision.sh"
             BACKEND_API_CLIENT_ID=$(az ad app list --filter "displayName eq '$API_APP_NAME'" --query "[0].appId" -o tsv)
         else
             echo "Please provide the Backend API Client ID:"
