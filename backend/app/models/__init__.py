@@ -17,6 +17,11 @@ from .card import (
     CardListResponse,
 )
 
+from .learn import (
+    LearnNextResponse,
+    LearnReviewRequest,
+)
+
 __all__ = [
     "Deck",
     "DeckBase",
@@ -30,4 +35,6 @@ __all__ = [
     "CardUpdate",
     "CardResponse",
     "CardListResponse",
+    "LearnNextResponse",
+    "LearnReviewRequest",
 ]

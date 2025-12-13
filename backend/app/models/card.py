@@ -4,6 +4,8 @@ from datetime import datetime, timezone
 from pydantic import BaseModel, Field
 from uuid import uuid4
 
+from app.srs.time import utc_now_iso
+
 
 def generate_uuid() -> str:
     """Generate a new UUID string."""
@@ -44,6 +46,13 @@ class Card(CardBase):
     createdAt: str = Field(default_factory=now_iso, description="Creation timestamp")
     updatedAt: str = Field(default_factory=now_iso, description="Last update timestamp")
 
+    # SRS fields (persisted)
+    dueAt: str = Field(default_factory=utc_now_iso, description="Next due timestamp (UTC ISO Z)")
+    easeFactor: float = Field(2.5, description="SM-2 ease factor (min 1.3)")
+    repetitions: int = Field(0, description="Consecutive successful reviews")
+    intervalDays: int = Field(0, description="SM-2 interval in days")
+    lastReviewedAt: str | None = Field(None, description="Last review timestamp (UTC ISO Z)")
+
     class Config:
         """Pydantic config."""
 
@@ -68,6 +77,12 @@ class CardResponse(CardBase):
     userId: str
     createdAt: str
     updatedAt: str
+
+    dueAt: str
+    easeFactor: float
+    repetitions: int
+    intervalDays: int
+    lastReviewedAt: str | None
 
 
 class CardListResponse(BaseModel):
