@@ -17,7 +17,7 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 - 🧠 **Spaced Repetition (SRS)** – Learn cards with SM-2-based scheduling (Again/Hard/Good/Easy)
 - 🤖 **AI Tutor Agents** – Chat-based learning with persona-driven language tutors powered by Azure OpenAI
 - 📦 **Sample Data** – One-click button to populate sample flashcard decks
-- 🌐 **Azure Ready** – Deploys to Azure Container Apps with Cosmos DB
+- 🌐 **Azure Ready** – Deploys to Azure Container Apps with Cosmos DB and Azure OpenAI
 
 ### Architecture
 
