@@ -19,8 +19,10 @@ resource openAIAccount 'Microsoft.CognitiveServices/accounts@2024-10-01' existin
 
 // Role assignment for Managed Identity to access Azure OpenAI
 // Using openAIAccount.id in guid ensures account is resolved before role assignment
+// Use a deterministic GUID that includes subscription + scope + role + principal
+// This reduces chances of name mismatch with pre-existing assignments
 resource openAIRoleAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' = {
-  name: guid(openAIAccount.id, principalId, cognitiveServicesOpenAIUserRoleId)
+  name: guid(subscription().id, openAIAccount.id, cognitiveServicesOpenAIUserRoleId, principalId)
   scope: openAIAccount
   properties: {
     roleDefinitionId: subscriptionResourceId('Microsoft.Authorization/roleDefinitions', cognitiveServicesOpenAIUserRoleId)

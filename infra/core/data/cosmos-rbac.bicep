@@ -15,8 +15,9 @@ resource cosmosAccount 'Microsoft.DocumentDB/databaseAccounts@2024-11-15' existi
 
 // Cosmos DB RBAC role assignment for managed identity
 // Assigns "Cosmos DB Built-in Data Contributor" role to the specified principal
+// Use deterministic name generation that includes subscription + scope + role + principal
 resource cosmosRoleAssignment 'Microsoft.DocumentDB/databaseAccounts/sqlRoleAssignments@2024-11-15' = {
-  name: guid(cosmosAccount.id, principalId, cosmosDataContributorRoleId)
+  name: guid(subscription().id, cosmosAccount.id, cosmosDataContributorRoleId, principalId)
   parent: cosmosAccount
   properties: {
     roleDefinitionId: '${cosmosAccount.id}/sqlRoleDefinitions/${cosmosDataContributorRoleId}'
