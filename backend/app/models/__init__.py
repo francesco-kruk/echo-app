@@ -7,6 +7,7 @@ from .deck import (
     DeckUpdate,
     DeckResponse,
     DeckListResponse,
+    LanguageCode,
 )
 from .card import (
     Card,
@@ -22,6 +23,15 @@ from .learn import (
     LearnReviewRequest,
 )
 
+from .learn_agents import (
+    LearnAgentSummary,
+    LearnAgentsResponse,
+    LearnChatRequest,
+    LearnChatResponse,
+    LearnStartRequest,
+    LearnStartResponse,
+)
+
 __all__ = [
     "Deck",
     "DeckBase",
@@ -29,6 +39,7 @@ __all__ = [
     "DeckUpdate",
     "DeckResponse",
     "DeckListResponse",
+    "LanguageCode",
     "Card",
     "CardBase",
     "CardCreate",
@@ -37,4 +48,10 @@ __all__ = [
     "CardListResponse",
     "LearnNextResponse",
     "LearnReviewRequest",
+    "LearnAgentSummary",
+    "LearnAgentsResponse",
+    "LearnChatRequest",
+    "LearnChatResponse",
+    "LearnStartRequest",
+    "LearnStartResponse",
 ]

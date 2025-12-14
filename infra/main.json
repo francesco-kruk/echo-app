@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "4153935416841980615"
+      "templateHash": "5274923640616088831"
     }
   },
   "parameters": {
@@ -58,6 +58,13 @@
       "metadata": {
         "description": "Frontend SPA App Registration Client ID"
       }
+    },
+    "openAILocation": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Azure OpenAI location (some regions may not have capacity)"
+      }
     }
   },
   "variables": {
@@ -67,7 +74,8 @@
     "cosmosAccountName": "[format('cosmos-{0}', parameters('environmentName'))]",
     "cosmosDatabaseName": "echoapp",
     "cosmosDecksContainerName": "decks",
-    "cosmosCardsContainerName": "cards"
+    "cosmosCardsContainerName": "cards",
+    "openAIAccountName": "[format('openai-{0}', parameters('environmentName'))]"
   },
   "resources": [
     {
@@ -523,6 +531,181 @@
     {
       "type": "Microsoft.Resources/deployments",
       "apiVersion": "2025-04-01",
+      "name": "openai",
+      "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "accountName": {
+            "value": "[variables('openAIAccountName')]"
+          },
+          "location": "[if(not(empty(parameters('openAILocation'))), createObject('value', parameters('openAILocation')), createObject('value', parameters('location')))]",
+          "tags": {
+            "value": "[variables('tags')]"
+          },
+          "deploymentName": {
+            "value": "gpt-4o"
+          },
+          "modelName": {
+            "value": "gpt-4o"
+          },
+          "modelVersion": {
+            "value": "2024-11-20"
+          },
+          "deploymentCapacity": {
+            "value": 10
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "18063990088395969397"
+            }
+          },
+          "parameters": {
+            "accountName": {
+              "type": "string",
+              "metadata": {
+                "description": "Name of the Azure OpenAI account"
+              }
+            },
+            "location": {
+              "type": "string",
+              "defaultValue": "[resourceGroup().location]",
+              "metadata": {
+                "description": "Location for the resource"
+              }
+            },
+            "tags": {
+              "type": "object",
+              "defaultValue": {},
+              "metadata": {
+                "description": "Tags for the resource"
+              }
+            },
+            "deploymentName": {
+              "type": "string",
+              "defaultValue": "gpt-4o",
+              "metadata": {
+                "description": "Name of the model deployment"
+              }
+            },
+            "modelName": {
+              "type": "string",
+              "defaultValue": "gpt-4o",
+              "metadata": {
+                "description": "Model name to deploy"
+              }
+            },
+            "modelVersion": {
+              "type": "string",
+              "defaultValue": "2024-11-20",
+              "metadata": {
+                "description": "Model version to deploy"
+              }
+            },
+            "deploymentCapacity": {
+              "type": "int",
+              "defaultValue": 10,
+              "metadata": {
+                "description": "Deployment capacity (tokens per minute in thousands)"
+              }
+            },
+            "sku": {
+              "type": "string",
+              "defaultValue": "S0",
+              "metadata": {
+                "description": "SKU for the Azure OpenAI account"
+              }
+            }
+          },
+          "variables": {
+            "customSubDomainName": "[toLower(replace(parameters('accountName'), '-', ''))]"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.CognitiveServices/accounts",
+              "apiVersion": "2024-10-01",
+              "name": "[parameters('accountName')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "OpenAI",
+              "sku": {
+                "name": "[parameters('sku')]"
+              },
+              "properties": {
+                "customSubDomainName": "[variables('customSubDomainName')]",
+                "disableLocalAuth": true,
+                "publicNetworkAccess": "Enabled"
+              }
+            },
+            {
+              "type": "Microsoft.CognitiveServices/accounts/deployments",
+              "apiVersion": "2024-10-01",
+              "name": "[format('{0}/{1}', parameters('accountName'), parameters('deploymentName'))]",
+              "sku": {
+                "name": "GlobalStandard",
+                "capacity": "[parameters('deploymentCapacity')]"
+              },
+              "properties": {
+                "model": {
+                  "format": "OpenAI",
+                  "name": "[parameters('modelName')]",
+                  "version": "[parameters('modelVersion')]"
+                },
+                "versionUpgradeOption": "OnceNewDefaultVersionAvailable"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "endpoint": {
+              "type": "string",
+              "metadata": {
+                "description": "The endpoint URL for the Azure OpenAI account"
+              },
+              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName')), '2024-10-01').endpoint]"
+            },
+            "name": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the Azure OpenAI account"
+              },
+              "value": "[parameters('accountName')]"
+            },
+            "resourceId": {
+              "type": "string",
+              "metadata": {
+                "description": "The resource ID of the Azure OpenAI account"
+              },
+              "value": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('accountName'))]"
+            },
+            "deploymentName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the model deployment"
+              },
+              "value": "[parameters('deploymentName')]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
       "name": "frontend",
       "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
       "properties": {
@@ -553,7 +736,12 @@
             "value": true
           },
           "env": {
-            "value": []
+            "value": [
+              {
+                "name": "BACKEND_URL",
+                "value": "http://backend"
+              }
+            ]
           }
         },
         "template": {
@@ -563,7 +751,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "7958070673072185127"
+              "templateHash": "2384448418949955574"
             }
           },
           "parameters": {
@@ -647,6 +835,13 @@
               "metadata": {
                 "description": "Enable system-assigned managed identity"
               }
+            },
+            "minReplicas": {
+              "type": "int",
+              "defaultValue": 0,
+              "metadata": {
+                "description": "Minimum number of replicas (set to 1 for always-on services)"
+              }
             }
           },
           "resources": [
@@ -689,7 +884,7 @@
                     }
                   ],
                   "scale": {
-                    "minReplicas": 0,
+                    "minReplicas": "[parameters('minReplicas')]",
                     "maxReplicas": 10,
                     "rules": [
                       {
@@ -769,6 +964,9 @@
           "enableManagedIdentity": {
             "value": true
           },
+          "minReplicas": {
+            "value": 1
+          },
           "env": {
             "value": [
               {
@@ -777,7 +975,7 @@
               },
               {
                 "name": "CORS_ORIGINS",
-                "value": "[format('https://{0}', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend'), '2025-04-01').outputs.fqdn.value)]"
+                "value": "[format('https://frontend.{0}', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps'), '2025-04-01').outputs.defaultDomain.value)]"
               },
               {
                 "name": "COSMOS_ENDPOINT",
@@ -810,6 +1008,14 @@
               {
                 "name": "AZURE_API_APP_ID",
                 "value": "[parameters('backendApiClientId')]"
+              },
+              {
+                "name": "AZURE_OPENAI_ENDPOINT",
+                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'openai'), '2025-04-01').outputs.endpoint.value]"
+              },
+              {
+                "name": "AZURE_OPENAI_RESPONSES_DEPLOYMENT_NAME",
+                "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'openai'), '2025-04-01').outputs.deploymentName.value]"
               }
             ]
           }
@@ -821,7 +1027,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "7958070673072185127"
+              "templateHash": "2384448418949955574"
             }
           },
           "parameters": {
@@ -905,6 +1111,13 @@
               "metadata": {
                 "description": "Enable system-assigned managed identity"
               }
+            },
+            "minReplicas": {
+              "type": "int",
+              "defaultValue": 0,
+              "metadata": {
+                "description": "Minimum number of replicas (set to 1 for always-on services)"
+              }
             }
           },
           "resources": [
@@ -947,7 +1160,7 @@
                     }
                   ],
                   "scale": {
-                    "minReplicas": 0,
+                    "minReplicas": "[parameters('minReplicas')]",
                     "maxReplicas": 10,
                     "rules": [
                       {
@@ -987,7 +1200,7 @@
       "dependsOn": [
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'container-apps')]",
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'cosmos')]",
-        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend')]",
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'openai')]",
         "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
       ]
     },
@@ -1054,6 +1267,71 @@
         "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend')]",
         "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
       ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "openai-rbac",
+      "resourceGroup": "[format('rg-{0}', parameters('environmentName'))]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "accountName": {
+            "value": "[variables('openAIAccountName')]"
+          },
+          "principalId": {
+            "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend'), '2025-04-01').outputs.principalId.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.39.26.7824",
+              "templateHash": "9941469935945130476"
+            }
+          },
+          "parameters": {
+            "accountName": {
+              "type": "string",
+              "metadata": {
+                "description": "The name of the Azure OpenAI account"
+              }
+            },
+            "principalId": {
+              "type": "string",
+              "metadata": {
+                "description": "Principal ID to assign Cognitive Services OpenAI User role"
+              }
+            }
+          },
+          "variables": {
+            "cognitiveServicesOpenAIUserRoleId": "5e0bd9bd-7b93-4f28-af87-19fc36ad61bd"
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', parameters('accountName'))]",
+              "name": "[guid(resourceGroup().id, parameters('accountName'), parameters('principalId'), variables('cognitiveServicesOpenAIUserRoleId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', variables('cognitiveServicesOpenAIUserRoleId'))]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "ServicePrincipal"
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend')]",
+        "[subscriptionResourceId('Microsoft.Resources/resourceGroups', format('rg-{0}', parameters('environmentName')))]"
+      ]
     }
   ],
   "outputs": {
@@ -1076,10 +1354,6 @@
     "FRONTEND_URI": {
       "type": "string",
       "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'frontend'), '2025-04-01').outputs.uri.value]"
-    },
-    "VITE_API_URL": {
-      "type": "string",
-      "value": "[reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', subscription().subscriptionId, format('rg-{0}', parameters('environmentName'))), 'Microsoft.Resources/deployments', 'backend'), '2025-04-01').outputs.uri.value]"
     },
     "VITE_AZURE_CLIENT_ID": {
       "type": "string",

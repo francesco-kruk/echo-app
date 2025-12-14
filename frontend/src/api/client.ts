@@ -56,10 +56,22 @@ async function getAccessToken(): Promise<string | null> {
 }
 
 // Types matching backend models
+
+// Supported deck languages
+export type LanguageCode = 'es-ES' | 'de-DE' | 'fr-FR' | 'it-IT';
+
+export const SUPPORTED_LANGUAGES: { code: LanguageCode; name: string; agentName: string }[] = [
+  { code: 'es-ES', name: 'Spanish (Spain)', agentName: 'Miguel de Cervantes' },
+  { code: 'de-DE', name: 'German (Germany)', agentName: 'Johann Wolfgang von Goethe' },
+  { code: 'fr-FR', name: 'French (France)', agentName: 'Victor Hugo' },
+  { code: 'it-IT', name: 'Italian (Italy)', agentName: 'Leonardo da Vinci' },
+];
+
 export interface Deck {
   id: string;
   name: string;
   description: string | null;
+  language: LanguageCode;
   userId: string;
   createdAt: string;
   updatedAt: string;
@@ -68,11 +80,13 @@ export interface Deck {
 export interface DeckCreate {
   name: string;
   description?: string | null;
+  language: LanguageCode;
 }
 
 export interface DeckUpdate {
   name?: string | null;
   description?: string | null;
+  // Note: language is intentionally NOT included here as it is immutable
 }
 
 export interface DeckListResponse {
@@ -304,6 +318,80 @@ export async function postLearnReview(
 ): Promise<Card> {
   return apiFetch<Card>(
     '/learn/review',
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+    userId
+  );
+}
+
+// Agent-based learning API types
+export interface LearnAgentSummary {
+  deckId: string;
+  deckName: string;
+  language: LanguageCode;
+  agentName: string;
+  dueCardCount: number;
+}
+
+export interface LearnAgentsResponse {
+  agents: LearnAgentSummary[];
+  count: number;
+}
+
+export interface LearnStartRequest {
+  deckId: string;
+}
+
+export interface LearnStartResponse {
+  cardId: string;
+  cardFront: string;
+  assistantMessage: string;
+  agentName: string;
+  language: LanguageCode;
+}
+
+export interface LearnChatRequest {
+  deckId: string;
+  userMessage: string;
+  cardId?: string;
+}
+
+export interface LearnChatResponse {
+  assistantMessage: string;
+  canGrade: boolean;
+  revealed: boolean;
+  isCorrect: boolean;
+  cardId: string;
+  cardFront: string;
+}
+
+// Agent-based learning API functions
+export async function getLearnAgents(userId?: string): Promise<LearnAgentsResponse> {
+  return apiFetch<LearnAgentsResponse>('/learn/agents', {}, userId);
+}
+
+export async function postLearnStart(
+  request: LearnStartRequest,
+  userId?: string
+): Promise<LearnStartResponse> {
+  return apiFetch<LearnStartResponse>(
+    '/learn/start',
+    {
+      method: 'POST',
+      body: JSON.stringify(request),
+    },
+    userId
+  );
+}
+
+export async function postLearnChat(
+  request: LearnChatRequest,
+  userId?: string
+): Promise<LearnChatResponse> {
+  return apiFetch<LearnChatResponse>(
+    '/learn/chat',
     {
       method: 'POST',
       body: JSON.stringify(request),
