@@ -16,18 +16,20 @@ from .card import (
     CardUpdate,
     CardResponse,
     CardListResponse,
+    Grade,
 )
 
 from .learn import (
     LearnNextResponse,
-    LearnReviewRequest,
 )
 
 from .learn_agents import (
     LearnAgentSummary,
     LearnAgentsResponse,
+    LearnCardInfo,
     LearnChatRequest,
     LearnChatResponse,
+    LearnMode,
     LearnStartRequest,
     LearnStartResponse,
 )
@@ -46,12 +48,14 @@ __all__ = [
     "CardUpdate",
     "CardResponse",
     "CardListResponse",
+    "Grade",
     "LearnNextResponse",
-    "LearnReviewRequest",
     "LearnAgentSummary",
     "LearnAgentsResponse",
+    "LearnCardInfo",
     "LearnChatRequest",
     "LearnChatResponse",
+    "LearnMode",
     "LearnStartRequest",
     "LearnStartResponse",
 ]

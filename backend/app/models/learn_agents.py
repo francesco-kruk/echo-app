@@ -31,17 +31,25 @@ class LearnChatRequest(BaseModel):
     """Request for POST /learn/chat."""
     deckId: str = Field(..., description="ID of the deck to study")
     userMessage: str = Field(..., min_length=1, max_length=2000, description="User's message")
-    cardId: str | None = Field(None, description="Optional card ID to study (uses current due card if not provided)")
+
+
+class LearnCardInfo(BaseModel):
+    """Card information returned in learn responses."""
+    id: str = Field(..., description="ID of the card")
+    front: str = Field(..., description="Front of the card (question/prompt)")
+
+
+LearnMode = Literal["card", "free"]
 
 
 class LearnChatResponse(BaseModel):
     """Response for POST /learn/chat."""
     assistantMessage: str = Field(..., description="Tutor's response")
-    canGrade: bool = Field(..., description="Whether the user can now submit a grade")
-    revealed: bool = Field(..., description="Whether the answer was revealed")
-    isCorrect: bool = Field(..., description="Whether the user's answer was correct")
-    cardId: str = Field(..., description="ID of the current card being studied")
-    cardFront: str = Field(..., description="Front of the current card (question/prompt)")
+    mode: LearnMode = Field(..., description="Current learning mode: 'card' or 'free'")
+    card: LearnCardInfo | None = Field(
+        None,
+        description="Current card info when in card mode, null in free mode"
+    )
 
 
 class LearnStartRequest(BaseModel):
@@ -50,9 +58,21 @@ class LearnStartRequest(BaseModel):
 
 
 class LearnStartResponse(BaseModel):
-    """Response for POST /learn/start."""
-    cardId: str = Field(..., description="ID of the current card to study")
-    cardFront: str = Field(..., description="Front of the card (question/prompt)")
+    """Response for POST /learn/start.
+    
+    The response includes the current mode ('card' or 'free') and optional card info.
+    Free mode is used when no cards are due; card mode when studying a specific card.
+    """
     assistantMessage: str = Field(..., description="Initial greeting from the tutor")
+    mode: LearnMode = Field(..., description="Current learning mode: 'card' or 'free'")
+    card: LearnCardInfo | None = Field(
+        None,
+        description="Current card info when in card mode, null in free mode"
+    )
+    conversationId: str = Field(
+        ...,
+        description="Stable conversation ID for this user+deck session"
+    )
+    # Keep agentName and language for UI display purposes
     agentName: str = Field(..., description="Name of the AI tutor persona")
     language: LanguageCode = Field(..., description="Target language of the deck")

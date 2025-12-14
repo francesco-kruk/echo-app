@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import threading
+import uuid
 from dataclasses import dataclass, field
-from typing import TypedDict
+from typing import Literal, TypedDict
 
 from cachetools import TTLCache
 
@@ -15,42 +16,161 @@ class ChatMessage(TypedDict):
     content: str
 
 
+# Learning mode type
+Mode = Literal["card", "free"]
+
+# Grade type (mirrors learn.py Grade)
+Grade = Literal["again", "hard", "good", "easy"]
+
+
+class AddMessageResult(TypedDict):
+    """Result of adding a message to the session."""
+    window_rolled_over: bool  # True if trimming occurred (free mode only)
+
+
 @dataclass
 class AgentSessionState:
     """State for an agent tutoring session.
     
     Keyed by (user_id, deck_id). Tracks chat history and grading state
     for the current card being reviewed.
+    
+    Attributes:
+        mode: Current learning mode ("card" or "free")
+        card_id: Current card when in card mode, None in free mode
+        attempt_count: Counts user turns while current card is active until first resolution
+        resolved_at: ISO timestamp when card became resolved (correct or revealed)
+        last_grade: The most recently applied grade
+        agent_context_messages: Agent-visible conversation history
+        ui_conversation_id: Stable ID for the session (deterministic UUID per user_id, deck_id, created_at)
+        explicit_reveal_request_count: Number of explicit reveal requests (resets per-card)
+        revealed: Whether the answer has been revealed (resets per-card)
+        created_at: ISO timestamp when session was created
     """
-    card_id: str
-    messages: list[ChatMessage] = field(default_factory=list)
+    # Session identity
+    ui_conversation_id: str
+    created_at: str
+    
+    # Mode state
+    mode: Mode = "card"
+    card_id: str | None = None
+    
+    # Card resolution tracking
+    attempt_count: int = 0
+    resolved_at: str | None = None
+    last_grade: Grade | None = None
+    
+    # Agent context (bounded history)
+    agent_context_messages: list[ChatMessage] = field(default_factory=list)
+    
+    # Per-card reveal tracking (resets when card changes)
     explicit_reveal_request_count: int = 0
     revealed: bool = False
+    
+    # Legacy compatibility (will be derived from resolved_at)
     is_correct: bool = False
     
-    @property
-    def can_grade(self) -> bool:
-        """Whether the learner can submit a grade."""
-        return self.is_correct or self.revealed
+    # Card mode context limit
+    CARD_MODE_MAX_MESSAGES: int = 6
+    # Free mode context limit (last 10 messages)
+    FREE_MODE_MAX_MESSAGES: int = 10
     
-    def add_message(self, role: str, content: str) -> None:
+    @property
+    def is_resolved(self) -> bool:
+        """Whether the current card has been resolved."""
+        return self.resolved_at is not None
+    
+    @property
+    def messages(self) -> list[ChatMessage]:
+        """Alias for agent_context_messages (legacy compatibility)."""
+        return self.agent_context_messages
+    
+    def add_message(self, role: str, content: str) -> AddMessageResult:
         """Add a message to the conversation history.
         
-        Keeps a bounded history to prevent context overflow.
-        Max 20 messages (10 exchanges).
+        In card mode: bounded to CARD_MODE_MAX_MESSAGES (6 messages, 3 exchanges).
+        In free mode: bounded to FREE_MODE_MAX_MESSAGES (10 messages, 5 exchanges).
+        
+        Returns:
+            AddMessageResult with window_rolled_over=True if trimming occurred in free mode.
         """
-        self.messages.append(ChatMessage(role=role, content=content))
-        # Keep bounded history
-        if len(self.messages) > 20:
-            self.messages = self.messages[-20:]
+        self.agent_context_messages.append(ChatMessage(role=role, content=content))
+        
+        window_rolled_over = False
+        
+        if self.mode == "card":
+            # Card mode: smaller context, cleared between cards anyway
+            max_messages = self.CARD_MODE_MAX_MESSAGES
+            if len(self.agent_context_messages) > max_messages:
+                self.agent_context_messages = self.agent_context_messages[-max_messages:]
+        else:
+            # Free mode: larger sliding window, signal when trimming occurs
+            max_messages = self.FREE_MODE_MAX_MESSAGES
+            if len(self.agent_context_messages) > max_messages:
+                self.agent_context_messages = self.agent_context_messages[-max_messages:]
+                window_rolled_over = True
+        
+        return AddMessageResult(window_rolled_over=window_rolled_over)
     
-    def reset_for_new_card(self, new_card_id: str) -> None:
-        """Reset state for a new card while keeping the session."""
-        self.card_id = new_card_id
-        self.messages = []
+    def reset_agent_context(self) -> None:
+        """Clear agent-visible history and reset per-card counters.
+        
+        Called when transitioning between cards or between modes.
+        Preserves session identity and conversation ID.
+        """
+        self.agent_context_messages = []
+        self.attempt_count = 0
+        self.resolved_at = None
         self.explicit_reveal_request_count = 0
         self.revealed = False
         self.is_correct = False
+    
+    def start_card(self, card_id: str) -> None:
+        """Start working on a new card.
+        
+        Sets mode to 'card', assigns the card_id, and resets per-card counters.
+        Clears agent context for fresh conversation.
+        
+        Args:
+            card_id: The ID of the card to start
+        """
+        self.mode = "card"
+        self.card_id = card_id
+        self.reset_agent_context()
+    
+    def start_free_mode(self) -> None:
+        """Switch to free mode (no active card).
+        
+        Sets mode to 'free', clears card_id, and resets agent context.
+        """
+        self.mode = "free"
+        self.card_id = None
+        self.reset_agent_context()
+
+
+def _generate_conversation_id(user_id: str, deck_id: str, created_at: str) -> str:
+    """Generate a deterministic conversation ID for a session.
+    
+    Uses UUID5 with a fixed namespace to ensure the same inputs
+    always produce the same conversation ID.
+    
+    Args:
+        user_id: User ID
+        deck_id: Deck ID  
+        created_at: ISO timestamp when session was created
+        
+    Returns:
+        Deterministic UUID string
+    """
+    namespace = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')
+    combined = f"{user_id}:{deck_id}:{created_at}"
+    return str(uuid.uuid5(namespace, combined))
+
+
+def _utc_now_iso() -> str:
+    """Get current UTC time as ISO string (avoid circular import from srs.time)."""
+    from datetime import datetime, timezone
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 class SessionStore:
@@ -81,6 +201,33 @@ class SessionStore:
         """Create a cache key from user and deck IDs."""
         return (user_id, deck_id)
     
+    def _create_session(self, user_id: str, deck_id: str, card_id: str | None = None) -> AgentSessionState:
+        """Create a new session with proper initialization.
+        
+        Args:
+            user_id: User ID
+            deck_id: Deck ID
+            card_id: Optional card ID to start in card mode
+            
+        Returns:
+            New AgentSessionState instance
+        """
+        created_at = _utc_now_iso()
+        conversation_id = _generate_conversation_id(user_id, deck_id, created_at)
+        
+        state = AgentSessionState(
+            ui_conversation_id=conversation_id,
+            created_at=created_at,
+        )
+        
+        # Initialize mode based on whether we have a card
+        if card_id is not None:
+            state.start_card(card_id)
+        else:
+            state.start_free_mode()
+        
+        return state
+    
     def get(self, user_id: str, deck_id: str) -> AgentSessionState | None:
         """Get session state for a user and deck.
         
@@ -96,24 +243,63 @@ class SessionStore:
             return state
     
     def get_or_create(self, user_id: str, deck_id: str, card_id: str) -> AgentSessionState:
-        """Get existing session or create a new one.
+        """Get existing session or create a new one in card mode.
         
         If the session exists but the card_id differs, resets the session
         for the new card.
+        
+        Args:
+            user_id: User ID
+            deck_id: Deck ID
+            card_id: Card ID to use (required for this method)
+            
+        Returns:
+            Session state (existing or newly created)
+        """
+        key = self._make_key(user_id, deck_id)
+        with self._lock:
+            state = self._cache.get(key)
+            if state is None:
+                # Create new session in card mode
+                state = self._create_session(user_id, deck_id, card_id)
+                self._cache[key] = state
+            elif state.card_id != card_id:
+                # Card changed, reset for new card
+                state.start_card(card_id)
+                self._cache[key] = state
+            else:
+                # Refresh TTL
+                self._cache[key] = state
+            return state
+    
+    def get_or_create_session(self, user_id: str, deck_id: str, card_id: str | None = None) -> AgentSessionState:
+        """Get existing session or create a new one.
+        
+        This is the preferred method for the new state machine. Unlike get_or_create(),
+        it doesn't require a card_id and supports starting in free mode.
+        
+        Args:
+            user_id: User ID
+            deck_id: Deck ID
+            card_id: Optional card ID. If provided and different from current, switches to that card.
+                    If None, doesn't change current card state.
+            
+        Returns:
+            Session state (existing or newly created)
         """
         key = self._make_key(user_id, deck_id)
         with self._lock:
             state = self._cache.get(key)
             if state is None:
                 # Create new session
-                state = AgentSessionState(card_id=card_id)
+                state = self._create_session(user_id, deck_id, card_id)
                 self._cache[key] = state
-            elif state.card_id != card_id:
-                # Card changed, reset for new card
-                state.reset_for_new_card(card_id)
+            elif card_id is not None and state.card_id != card_id:
+                # Switching to a different card
+                state.start_card(card_id)
                 self._cache[key] = state
             else:
-                # Refresh TTL
+                # Refresh TTL only
                 self._cache[key] = state
             return state
     

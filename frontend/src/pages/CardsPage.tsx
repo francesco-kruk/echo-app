@@ -10,9 +10,36 @@ import {
   type Deck,
   type CardCreate,
   type CardUpdate,
+  type LearnGrade,
 } from '../api/client';
 import { CardForm } from '../components/CardForm';
 import './CardsPage.css';
+
+/** Format a date as relative time (e.g., "2 hours ago") */
+function formatRelativeTime(isoDate: string): string {
+  const date = new Date(isoDate);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+
+  if (diffDay > 0) return diffDay === 1 ? '1 day ago' : `${diffDay} days ago`;
+  if (diffHour > 0) return diffHour === 1 ? '1 hour ago' : `${diffHour} hours ago`;
+  if (diffMin > 0) return diffMin === 1 ? '1 min ago' : `${diffMin} mins ago`;
+  return 'just now';
+}
+
+/** Get display label and CSS class for a grade */
+function getGradeDisplay(grade: LearnGrade): { label: string; className: string } {
+  switch (grade) {
+    case 'again': return { label: 'Again', className: 'grade-again' };
+    case 'hard': return { label: 'Hard', className: 'grade-hard' };
+    case 'good': return { label: 'Good', className: 'grade-good' };
+    case 'easy': return { label: 'Easy', className: 'grade-easy' };
+  }
+}
 
 export function CardsPage() {
   const { deckId } = useParams<{ deckId: string }>();
@@ -130,6 +157,14 @@ export function CardsPage() {
                 <div className="flashcard-inner">
                   <div className="flashcard-front">
                     <div className="card-content">{card.front}</div>
+                    {card.lastGrade && card.lastGradedAt && (
+                      <div className="card-meta">
+                        <span className={`grade-badge ${getGradeDisplay(card.lastGrade).className}`}>
+                          {getGradeDisplay(card.lastGrade).label}
+                        </span>
+                        <span className="graded-at">{formatRelativeTime(card.lastGradedAt)}</span>
+                      </div>
+                    )}
                     <div className="flip-hint">Click to flip</div>
                   </div>
                   <div className="flashcard-back">

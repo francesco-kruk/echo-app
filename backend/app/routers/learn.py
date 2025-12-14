@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
 import logging
+import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
@@ -10,16 +12,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.auth import CurrentUser, get_current_user
 from app.models import (
+    Card,
     CardResponse,
+    Grade,
     LearnNextResponse,
-    LearnReviewRequest,
     LearnAgentSummary,
     LearnAgentsResponse,
+    LearnCardInfo,
     LearnChatRequest,
     LearnChatResponse,
+    LearnMode,
     LearnStartRequest,
     LearnStartResponse,
 )
+from app.srs.grading import compute_grade
 from app.repositories import (
     CardNotFoundError,
     DeckNotFoundError,
@@ -34,9 +40,6 @@ logger = logging.getLogger(__name__)
 
 
 router = APIRouter(prefix="/learn", tags=["learn"])
-
-
-Grade = Literal["again", "hard", "good", "easy"]
 
 
 _GRADE_TO_QUALITY: dict[Grade, int] = {
@@ -59,6 +62,97 @@ def _due_at_for_grade(now: datetime, grade: Grade) -> str:
     raise ValueError(f"Invalid grade: {grade}")
 
 
+def apply_review_grade(card: Card, grade: Grade) -> Card:
+    """Apply a review grade to a card and update its SRS fields.
+
+    This is a shared function used by:
+    - POST /learn/review (manual review, kept for compatibility)
+    - Agent-driven grading in /learn/chat
+
+    Updates:
+    - SM-2 state (easeFactor, repetitions, intervalDays)
+    - Due scheduling (dueAt, lastReviewedAt)
+    - Grade tracking (lastGrade, lastGradedAt)
+    - updatedAt timestamp
+
+    Args:
+        card: The Card model to update (mutated in place)
+        grade: The grade to apply
+
+    Returns:
+        The updated card (same reference)
+    """
+    now_dt = parse_iso_z(utc_now_iso())
+
+    # Update SM-2 state (EF/reps/intervalDays)
+    state = SM2State(
+        ease_factor=card.easeFactor,
+        repetitions=card.repetitions,
+        interval_days=card.intervalDays,
+    )
+    new_state = apply_sm2(state, _GRADE_TO_QUALITY[grade])
+
+    card.easeFactor = new_state.ease_factor
+    card.repetitions = new_state.repetitions
+    card.intervalDays = new_state.interval_days
+
+    # Fixed due scheduling
+    now_iso = utc_now_iso()
+    card.lastReviewedAt = now_iso
+    card.dueAt = _due_at_for_grade(now_dt, grade)
+    card.updatedAt = now_iso
+
+    # Track grade history
+    card.lastGrade = grade
+    card.lastGradedAt = now_iso
+
+    return card
+
+
+def submit_card_review_grade(
+    card: Card,
+    revealed: bool,
+    attempt_count: int,
+    card_repo,
+    user_id: str,
+    deck_id: str,
+) -> Card:
+    """Apply an agent-driven review grade to a card.
+
+    This is the internal "tool-like" function called when the agent verdict
+    resolves a card. The grade is computed deterministically from session state
+    (revealed, attempt_count) via the grading heuristic - the model only
+    provides resolution signals, not the grade itself.
+
+    Args:
+        card: The Card model to update
+        revealed: Whether the answer was revealed to the user
+        attempt_count: Number of attempts before resolution
+        card_repo: The card repository for persistence
+        user_id: User ID for logging
+        deck_id: Deck ID for logging
+
+    Returns:
+        The updated and persisted card
+    """
+    # Compute grade deterministically from session state
+    grade = compute_grade(revealed=revealed, attempt_count=attempt_count)
+
+    # Apply the grade using shared function
+    apply_review_grade(card, grade)
+
+    # Persist the updated card
+    updated = card_repo.replace(card)
+
+    logger.info(
+        f"Agent-driven grade applied: user={user_id}, deck={deck_id}, "
+        f"card={card.id}, grade={grade}, revealed={revealed}, "
+        f"attempts={attempt_count}, new_due_at={card.dueAt}"
+    )
+
+    return updated
+
+
 async def _verify_deck_ownership(deck_id: str, user_id: str) -> None:
     deck_repo = get_deck_repository()
     if not deck_repo.exists(deck_id, user_id):
@@ -66,6 +160,18 @@ async def _verify_deck_ownership(deck_id: str, user_id: str) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Deck with ID {deck_id} not found",
         )
+
+
+def _generate_conversation_id(user_id: str, deck_id: str) -> str:
+    """Generate a stable conversation ID for a user+deck session.
+    
+    Uses a deterministic UUID based on user_id and deck_id.
+    This ensures the same conversation ID is returned for the same session.
+    """
+    # Create a deterministic namespace UUID from user_id and deck_id
+    namespace = uuid.UUID('6ba7b810-9dad-11d1-80b4-00c04fd430c8')  # UUID namespace
+    combined = f"{user_id}:{deck_id}"
+    return str(uuid.uuid5(namespace, combined))
 
 
 @router.get("/next", response_model=LearnNextResponse)
@@ -84,70 +190,6 @@ async def learn_next(
 
     next_due_at = card_repo.get_next_due_at_for_deck(user.user_id, deckId)
     return LearnNextResponse(card=None, nextDueAt=next_due_at)
-
-
-@router.post("/review", response_model=CardResponse)
-async def learn_review(
-    req: LearnReviewRequest, user: Annotated[CurrentUser, Depends(get_current_user)]
-) -> CardResponse:
-    """Apply a review grade to a card and update its SRS fields."""
-    await _verify_deck_ownership(req.deckId, user.user_id)
-
-    card_repo = get_card_repository()
-    try:
-        card = card_repo.get_by_id(req.cardId, user.user_id)
-    except CardNotFoundError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Card with ID {req.cardId} not found",
-        )
-
-    if card.deckId != req.deckId:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Card with ID {req.cardId} not found in deck {req.deckId}",
-        )
-
-    grade: Grade = req.grade
-    if grade not in _GRADE_TO_QUALITY:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Invalid grade: {req.grade}",
-        )
-
-    now_dt = parse_iso_z(utc_now_iso())
-
-    # Update SM-2 state (EF/reps/intervalDays)
-    state = SM2State(
-        ease_factor=card.easeFactor,
-        repetitions=card.repetitions,
-        interval_days=card.intervalDays,
-    )
-    new_state = apply_sm2(state, _GRADE_TO_QUALITY[grade])
-
-    card.easeFactor = new_state.ease_factor
-    card.repetitions = new_state.repetitions
-    card.intervalDays = new_state.interval_days
-
-    # Fixed due scheduling
-    card.lastReviewedAt = utc_now_iso()
-    card.dueAt = _due_at_for_grade(now_dt, grade)
-    card.updatedAt = utc_now_iso()  # match the same ISO-Z style for SRS touches
-
-    # Reset agent session state after grading
-    try:
-        from app.agents.session_store import get_session_store
-        session_store = get_session_store()
-        session_store.reset(user.user_id, req.deckId)
-        logger.info(
-            f"Grade submitted: user={user.user_id}, deck={req.deckId}, "
-            f"card={req.cardId}, grade={req.grade}, new_due_at={card.dueAt}"
-        )
-    except Exception as e:
-        logger.warning(f"Failed to reset agent session: {e}")
-
-    updated = card_repo.replace(card)
-    return CardResponse(**updated.model_dump())
 
 
 # =============================================================================
@@ -197,8 +239,9 @@ async def start_learning_session(
 ) -> LearnStartResponse:
     """Start a tutoring session for a deck.
     
-    Fetches the next due card and initializes a chat session with the AI tutor.
-    Returns the card prompt and an initial greeting from the tutor.
+    If cards are due, starts in card mode with the next due card.
+    If no cards are due, starts in free mode for general tutoring.
+    Never 404s just because no cards are due.
     """
     await _verify_deck_ownership(req.deckId, user.user_id)
 
@@ -215,40 +258,87 @@ async def start_learning_session(
             detail=f"Deck with ID {req.deckId} not found",
         )
 
-    # Get the next due card
-    card = card_repo.get_next_due_for_deck(user.user_id, req.deckId, now_iso)
-    if card is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="No cards due for review in this deck",
-        )
-
     # Get persona info
     language_info = SUPPORTED_LANGUAGES.get(deck.language)
     agent_name = language_info["agent_name"] if language_info else "AI Tutor"
 
-    # Initialize session state
-    from app.agents.session_store import get_session_store
-    session_store = get_session_store()
-    session_store.get_or_create(user.user_id, req.deckId, card.id)
+    # Get the next due card (may be None)
+    card = card_repo.get_next_due_for_deck(user.user_id, req.deckId, now_iso)
 
-    # Log session start (privacy: avoid logging card.back)
+    # Initialize session state using the new state machine
+    from app.agents.session_store import get_session_store
+    from app.agents.foundry_client import get_foundry_client
+    session_store = get_session_store()
+    
+    if card is not None:
+        # Card mode: start with the due card
+        session_state = session_store.get_or_create_session(user.user_id, req.deckId, card.id)
+        session_state.start_card(card.id)
+        mode: LearnMode = "card"
+        card_info = LearnCardInfo(id=card.id, front=card.front)
+    else:
+        # Free mode: no cards due
+        session_state = session_store.get_or_create_session(user.user_id, req.deckId, None)
+        session_state.start_free_mode()
+        mode = "free"
+        card_info = None
+    
+    # Call the agent for the initial assistant message
+    try:
+        client = get_foundry_client()
+        greeting_response = await client.generate_greeting(
+            language=deck.language,
+            session_state=session_state,
+            card_front=card.front if card else None,
+            card_back=card.back if card else None,
+        )
+        initial_message = greeting_response.feedback
+    except EnvironmentError as e:
+        # Agent not configured, use fallback greeting
+        logger.warning(f"Agent not configured for greeting, using fallback: {e}")
+        if card is not None:
+            initial_message = (
+                f"Hello! I'm {agent_name}, your {language_info['name'] if language_info else 'language'} tutor. "
+                f"Let's practice! Here's your card:\n\n**{card.front}**\n\n"
+                "What's your answer?"
+            )
+        else:
+            initial_message = (
+                f"Hello! I'm {agent_name}, your {language_info['name'] if language_info else 'language'} tutor. "
+                f"You don't have any cards due for review right now. "
+                f"Feel free to ask me anything about {language_info['name'] if language_info else 'the language'} - "
+                f"vocabulary, grammar, expressions, or anything else you'd like to practice!"
+            )
+    except Exception as e:
+        # Other errors, use fallback greeting
+        logger.error(f"Agent greeting generation failed: {e}")
+        if card is not None:
+            initial_message = (
+                f"Hello! I'm {agent_name}, your {language_info['name'] if language_info else 'language'} tutor. "
+                f"Let's practice! Here's your card:\n\n**{card.front}**\n\n"
+                "What's your answer?"
+            )
+        else:
+            initial_message = (
+                f"Hello! I'm {agent_name}, your {language_info['name'] if language_info else 'language'} tutor. "
+                f"You don't have any cards due for review right now. "
+                f"Feel free to ask me anything about {language_info['name'] if language_info else 'the language'} - "
+                f"vocabulary, grammar, expressions, or anything else you'd like to practice!"
+            )
+    
+    session_store.update(user.user_id, req.deckId, session_state)
+
+    # Log session start
     logger.info(
         f"Chat session started: user={user.user_id}, deck={req.deckId}, "
-        f"card={card.id}, language={deck.language}, agent={agent_name}"
-    )
-
-    # Generate initial greeting
-    initial_message = (
-        f"Hello! I'm {agent_name}, your {language_info['name'] if language_info else 'language'} tutor. "
-        f"Let's practice! Here's your card:\n\n**{card.front}**\n\n"
-        "What's your answer?"
+        f"mode={mode}, card={card.id if card else None}, language={deck.language}, agent={agent_name}"
     )
 
     return LearnStartResponse(
-        cardId=card.id,
-        cardFront=card.front,
         assistantMessage=initial_message,
+        mode=mode,
+        card=card_info,
+        conversationId=session_state.ui_conversation_id,
         agentName=agent_name,
         language=deck.language,
     )
@@ -260,8 +350,12 @@ async def chat_with_tutor(
 ) -> LearnChatResponse:
     """Send a message to the tutoring agent.
     
-    The agent evaluates the user's answer and provides feedback.
-    When canGrade is True, the user should submit a grade via POST /learn/review.
+    Implements a state machine with two modes:
+    - Card mode: working on a specific due card
+    - Free mode: general tutoring when no cards are due
+    
+    Mode transitions are fully server-driven; clients do not need to pass cardId.
+    Never 404s just because no cards are due.
     """
     await _verify_deck_ownership(req.deckId, user.user_id)
 
@@ -278,33 +372,83 @@ async def chat_with_tutor(
             detail=f"Deck with ID {req.deckId} not found",
         )
 
-    # Get the current due card (or validate provided cardId)
-    if req.cardId:
-        try:
-            card = card_repo.get_by_id(req.cardId, user.user_id)
-            if card.deckId != req.deckId:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail=f"Card with ID {req.cardId} not found in deck {req.deckId}",
-                )
-        except CardNotFoundError:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Card with ID {req.cardId} not found",
-            )
-    else:
-        card = card_repo.get_next_due_for_deck(user.user_id, req.deckId, now_iso)
-        if card is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="No cards due for review in this deck",
-            )
-
     # Get or create session state
     from app.agents.session_store import get_session_store
     session_store = get_session_store()
-    session_state = session_store.get_or_create(user.user_id, req.deckId, card.id)
+    session_state = session_store.get_or_create_session(user.user_id, req.deckId, None)
+    
+    # Determine current card based on session mode
+    card = None
+    
+    if session_state.mode == "card" and session_state.card_id:
+        # We have an active card in the session - use it
+        try:
+            card = card_repo.get_by_id(session_state.card_id, user.user_id)
+            if card.deckId != req.deckId:
+                # Card doesn't belong to this deck anymore, clear it
+                card = None
+        except CardNotFoundError:
+            # Card was deleted, clear it
+            card = None
+    
+    if card is None:
+        # No active card in session, try to get the next due card
+        card = card_repo.get_next_due_for_deck(user.user_id, req.deckId, now_iso)
+        if card is not None:
+            # Start card mode with this card
+            session_state.start_card(card.id)
+        else:
+            # No due cards, switch to free mode if not already
+            if session_state.mode != "free":
+                session_state.start_free_mode()
+    
+    # Process based on current mode
+    if session_state.mode == "card" and card is not None:
+        # === CARD MODE ===
+        return await _handle_card_mode_chat(
+            req=req,
+            user=user,
+            deck=deck,
+            card=card,
+            session_state=session_state,
+            session_store=session_store,
+            card_repo=card_repo,
+        )
+    else:
+        # === FREE MODE ===
+        return await _handle_free_mode_chat(
+            req=req,
+            user=user,
+            deck=deck,
+            session_state=session_state,
+            session_store=session_store,
+            card_repo=card_repo,
+        )
 
+
+async def _handle_card_mode_chat(
+    req: LearnChatRequest,
+    user: CurrentUser,
+    deck,  # DeckResponse
+    card,  # Card
+    session_state,  # AgentSessionState
+    session_store,  # SessionStore
+    card_repo,  # CardRepository
+) -> LearnChatResponse:
+    """Handle chat in card mode.
+    
+    - Increments attempt_count if card not yet resolved
+    - Calls agent with card context
+    - If agent resolves the card (correct or revealed):
+      - Sets resolved_at
+      - Computes and applies grade (Phase 2)
+      - Resets agent context
+      - Advances to next due card or switches to free mode
+    """
+    # Increment attempt_count only if not yet resolved
+    if not session_state.is_resolved:
+        session_state.attempt_count += 1
+    
     # Call the agent
     try:
         from app.agents.foundry_client import get_foundry_client
@@ -312,8 +456,8 @@ async def chat_with_tutor(
         
         # Log message send (privacy: don't log actual user message content)
         logger.info(
-            f"Chat message: user={user.user_id}, deck={req.deckId}, "
-            f"card={card.id}, msg_len={len(req.userMessage)}"
+            f"Chat message (card mode): user={user.user_id}, deck={req.deckId}, "
+            f"card={card.id}, attempt={session_state.attempt_count}, msg_len={len(req.userMessage)}"
         )
         
         response = await client.send_message(
@@ -324,25 +468,158 @@ async def chat_with_tutor(
             session_state=session_state,
         )
         
+        # Log verdict
+        logger.info(
+            f"Chat verdict (card mode): user={user.user_id}, deck={req.deckId}, card={card.id}, "
+            f"is_correct={response.is_correct}, revealed={response.revealed}, "
+            f"attempt={session_state.attempt_count}"
+        )
+        
+        # Check if this resolves the card for the first time
+        card_resolved_now = False
+        if not session_state.is_resolved and (response.is_correct or response.revealed):
+            card_resolved_now = True
+            session_state.resolved_at = utc_now_iso()
+            session_state.is_correct = response.is_correct
+            session_state.revealed = response.revealed
+            
+            # Apply grade using deterministic heuristic (Phase 2)
+            # The grade is computed from session state, not from the model
+            submit_card_review_grade(
+                card=card,
+                revealed=response.revealed,
+                attempt_count=session_state.attempt_count,
+                card_repo=card_repo,
+                user_id=user.user_id,
+                deck_id=req.deckId,
+            )
+            
+            logger.info(
+                f"Card resolved: user={user.user_id}, deck={req.deckId}, card={card.id}, "
+                f"correct={response.is_correct}, revealed={response.revealed}, "
+                f"attempts={session_state.attempt_count}"
+            )
+        
+        # Prepare response
+        result_mode: LearnMode = "card"
+        result_card_info = LearnCardInfo(id=card.id, front=card.front)
+        
+        # If card was just resolved, advance to next card or switch to free mode
+        if card_resolved_now:
+            # Reset agent context for the next card
+            session_state.reset_agent_context()
+            
+            # Try to get next due card
+            now_iso = utc_now_iso()
+            next_card = card_repo.get_next_due_for_deck(user.user_id, req.deckId, now_iso)
+            
+            if next_card is not None:
+                # Start next card
+                session_state.start_card(next_card.id)
+                result_card_info = LearnCardInfo(id=next_card.id, front=next_card.front)
+            else:
+                # No more due cards, switch to free mode
+                session_state.start_free_mode()
+                result_mode = "free"
+                result_card_info = None
+        
         # Update session state
         session_store.update(user.user_id, req.deckId, session_state)
         
-        # Log verdict (privacy: avoid feedback content in logs)
-        logger.info(
-            f"Chat verdict: user={user.user_id}, deck={req.deckId}, card={card.id}, "
-            f"is_correct={response.is_correct}, revealed={response.revealed}, can_grade={response.can_grade}"
-        )
-
         return LearnChatResponse(
             assistantMessage=response.feedback,
-            canGrade=response.can_grade,
-            revealed=response.revealed,
-            isCorrect=response.is_correct,
-            cardId=card.id,
-            cardFront=card.front,
+            mode=result_mode,
+            card=result_card_info,
         )
+        
     except EnvironmentError as e:
-        # Agent framework not configured
+        logger.error(f"Agent framework not configured: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI tutoring service is not configured. Please set up Azure OpenAI credentials.",
+        )
+    except Exception as e:
+        logger.error(f"Agent call failed: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to communicate with the AI tutor. Please try again.",
+        )
+
+
+async def _handle_free_mode_chat(
+    req: LearnChatRequest,
+    user: CurrentUser,
+    deck,  # DeckResponse
+    session_state,  # AgentSessionState
+    session_store,  # SessionStore
+    card_repo,  # CardRepository
+) -> LearnChatResponse:
+    """Handle chat in free mode.
+    
+    - Calls agent without card context
+    - Adds messages to agent context with last-10 sliding window
+    - When context window rolls over (trimming occurs), re-checks due cards
+    - If a due card exists, switches to card mode
+    """
+    try:
+        from app.agents.foundry_client import get_foundry_client
+        
+        client = get_foundry_client()
+        
+        # Log message send
+        logger.info(
+            f"Chat message (free mode): user={user.user_id}, deck={req.deckId}, "
+            f"msg_len={len(req.userMessage)}"
+        )
+        
+        # Call agent with free mode system prompt (no card context)
+        response = await client.send_free_mode_message(
+            user_message=req.userMessage,
+            language=deck.language,
+            session_state=session_state,
+        )
+        
+        feedback = response.feedback
+        
+        # Check if window rolled over (send_free_mode_message already adds messages)
+        # We need to check the session state's message count to detect rollover
+        add_result = {"window_rolled_over": len(session_state.agent_context_messages) >= session_state.FREE_MODE_MAX_MESSAGES}
+        
+        # Check if we should re-check due cards (window rolled over)
+        result_mode: LearnMode = "free"
+        result_card_info = None
+        
+        if add_result["window_rolled_over"]:
+            # Window trimmed, re-check for due cards
+            now_iso = utc_now_iso()
+            due_card = card_repo.get_next_due_for_deck(user.user_id, req.deckId, now_iso)
+            
+            if due_card is not None:
+                # Switch to card mode
+                session_state.start_card(due_card.id)
+                result_mode = "card"
+                result_card_info = LearnCardInfo(id=due_card.id, front=due_card.front)
+                
+                logger.info(
+                    f"Free mode -> card mode transition: user={user.user_id}, "
+                    f"deck={req.deckId}, card={due_card.id}"
+                )
+        
+        # Update session state
+        session_store.update(user.user_id, req.deckId, session_state)
+        
+        logger.info(
+            f"Chat response (free mode): user={user.user_id}, deck={req.deckId}, "
+            f"mode={result_mode}"
+        )
+        
+        return LearnChatResponse(
+            assistantMessage=feedback,
+            mode=result_mode,
+            card=result_card_info,
+        )
+        
+    except EnvironmentError as e:
         logger.error(f"Agent framework not configured: {e}")
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

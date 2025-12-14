@@ -20,11 +20,3 @@ class LearnNextResponse(BaseModel):
         None,
         description="Earliest upcoming dueAt when no card is due now",
     )
-
-
-class LearnReviewRequest(BaseModel):
-    """Request for POST /learn/review."""
-
-    deckId: str
-    cardId: str
-    grade: Grade

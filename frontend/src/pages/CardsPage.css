@@ -222,3 +222,50 @@
 .icon-btn.danger:hover {
   background: #5a2e2e;
 }
+
+/* Card meta row with grade badge and timestamp */
+.card-meta {
+  position: absolute;
+  bottom: 2rem;
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  font-size: 0.75rem;
+}
+
+.grade-badge {
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-weight: 500;
+  text-transform: uppercase;
+  font-size: 0.65rem;
+  letter-spacing: 0.5px;
+}
+
+.grade-again {
+  background: rgba(220, 53, 69, 0.2);
+  color: #ff6b6b;
+  border: 1px solid rgba(220, 53, 69, 0.4);
+}
+
+.grade-hard {
+  background: rgba(255, 193, 7, 0.2);
+  color: #ffc107;
+  border: 1px solid rgba(255, 193, 7, 0.4);
+}
+
+.grade-good {
+  background: rgba(40, 167, 69, 0.2);
+  color: #51cf66;
+  border: 1px solid rgba(40, 167, 69, 0.4);
+}
+
+.grade-easy {
+  background: rgba(0, 123, 255, 0.2);
+  color: #74c0fc;
+  border: 1px solid rgba(0, 123, 255, 0.4);
+}
+
+.graded-at {
+  color: #666;
+}

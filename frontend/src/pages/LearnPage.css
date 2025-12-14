@@ -237,6 +237,27 @@
   margin: 0;
 }
 
+.agent-starts-in {
+  font-size: 0.8rem;
+  font-weight: 500;
+  margin: 0.5rem 0 0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.agent-starts-in.card {
+  background: rgba(40, 167, 69, 0.15);
+  color: #51cf66;
+  border: 1px solid rgba(40, 167, 69, 0.3);
+}
+
+.agent-starts-in.free {
+  background: rgba(100, 108, 255, 0.15);
+  color: #74c0fc;
+  border: 1px solid rgba(100, 108, 255, 0.3);
+}
+
 /* Chat container */
 .chat-container {
   display: flex;
@@ -273,11 +294,20 @@
   font-size: 0.8rem;
 }
 
-.chat-card-prompt {
+.chat-mode-indicator {
   background: #2a2a2a;
   padding: 0.75rem 1rem;
   border-radius: 6px;
   font-size: 0.95rem;
+  transition: background-color 0.3s;
+}
+
+.chat-mode-indicator.card {
+  border-left: 3px solid #646cff;
+}
+
+.chat-mode-indicator.free {
+  border-left: 3px solid #4caf50;
 }
 
 .prompt-label {

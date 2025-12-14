@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  getLearnAgents,
-  getLearnNext,
+  getDecks,
   postLearnStart,
   postLearnChat,
-  postLearnReview,
   SUPPORTED_LANGUAGES,
-  type LearnAgentSummary,
+  type Deck,
   type LearnChatResponse,
-  type LearnGrade,
+  type LearnMode,
 } from '../api/client';
 import './LearnPage.css';
 
@@ -17,28 +15,50 @@ interface ChatMessage {
   content: string;
 }
 
+/** Agent info derived from a deck + SUPPORTED_LANGUAGES */
+interface DeckAgent {
+  deckId: string;
+  deckName: string;
+  language: string;
+  agentName: string;
+  dueCardCount: number;
+  startsInMode: 'card' | 'free';
+}
+
+/** Map a deck to an agent summary using SUPPORTED_LANGUAGES */
+function deckToAgent(deck: Deck): DeckAgent {
+  const langInfo = SUPPORTED_LANGUAGES.find(l => l.code === deck.language);
+  const dueCount = deck.dueCardCount ?? 0;
+  return {
+    deckId: deck.id,
+    deckName: deck.name,
+    language: langInfo?.name ?? deck.language,
+    agentName: langInfo?.agentName ?? 'Language Tutor',
+    dueCardCount: dueCount,
+    startsInMode: dueCount > 0 ? 'card' : 'free',
+  };
+}
+
 export function LearnPage() {
-  // Agent selection state
-  const [agents, setAgents] = useState<LearnAgentSummary[]>([]);
+  // Agent selection state (derived from decks)
+  const [agents, setAgents] = useState<DeckAgent[]>([]);
   const [loadingAgents, setLoadingAgents] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Selected agent/deck state
-  const [selectedAgent, setSelectedAgent] = useState<LearnAgentSummary | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<DeckAgent | null>(null);
 
   // Learning session state
-  const [cardId, setCardId] = useState<string | null>(null);
+  const [mode, setMode] = useState<LearnMode>('card');
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const [_cardId, setCardId] = useState<string | null>(null);
   const [cardFront, setCardFront] = useState<string | null>(null);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
-  const [canGrade, setCanGrade] = useState(false);
-  const [isCorrect, setIsCorrect] = useState(false);
-  const [revealed, setRevealed] = useState(false);
 
   // UI state
   const [loadingSession, setLoadingSession] = useState(false);
   const [sendingMessage, setSendingMessage] = useState(false);
   const [userInput, setUserInput] = useState('');
-  const [nextDueAt, setNextDueAt] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -48,20 +68,21 @@ export function LearnPage() {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [chatMessages]);
 
-  // Focus input when session starts
+  // Focus input when session starts or mode changes
   useEffect(() => {
-    if (selectedAgent && cardId) {
+    if (selectedAgent && !loadingSession) {
       inputRef.current?.focus();
     }
-  }, [selectedAgent, cardId]);
+  }, [selectedAgent, loadingSession, mode]);
 
-  // Fetch available agents
+  // Fetch available agents (derived from decks)
   const fetchAgents = useCallback(async () => {
     setLoadingAgents(true);
     setError(null);
     try {
-      const resp = await getLearnAgents();
-      setAgents(resp.agents);
+      const resp = await getDecks();
+      // Map decks to agents using SUPPORTED_LANGUAGES
+      setAgents(resp.decks.map(deckToAgent));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agents');
     } finally {
@@ -69,25 +90,43 @@ export function LearnPage() {
     }
   }, []);
 
+  // Initial fetch and periodic refresh while agent selection is visible
   useEffect(() => {
     fetchAgents();
-  }, [fetchAgents]);
+
+    // Refetch every 30 seconds when on the agent selection screen
+    const interval = setInterval(() => {
+      if (!selectedAgent) {
+        fetchAgents();
+      }
+    }, 30000);
+
+    return () => clearInterval(interval);
+  }, [fetchAgents, selectedAgent]);
+
+  // Refetch on window focus
+  useEffect(() => {
+    const handleFocus = () => {
+      if (!selectedAgent) {
+        fetchAgents();
+      }
+    };
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, [fetchAgents, selectedAgent]);
 
   // Start learning session with selected agent
-  const startSession = useCallback(async (agent: LearnAgentSummary) => {
+  const startSession = useCallback(async (agent: DeckAgent) => {
     setSelectedAgent(agent);
     setLoadingSession(true);
     setError(null);
     setChatMessages([]);
-    setCanGrade(false);
-    setIsCorrect(false);
-    setRevealed(false);
-    setNextDueAt(null);
 
     try {
       const resp = await postLearnStart({ deckId: agent.deckId });
-      setCardId(resp.cardId);
-      setCardFront(resp.cardFront);
+      setMode(resp.mode);
+      setCardId(resp.card?.id ?? null);
+      setCardFront(resp.card?.front ?? null);
       setChatMessages([{ role: 'assistant', content: resp.assistantMessage }]);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to start session');
@@ -99,7 +138,7 @@ export function LearnPage() {
 
   // Send a chat message
   const sendMessage = useCallback(async () => {
-    if (!selectedAgent || !cardId || !userInput.trim() || sendingMessage) return;
+    if (!selectedAgent || !userInput.trim() || sendingMessage) return;
 
     const message = userInput.trim();
     setUserInput('');
@@ -110,72 +149,27 @@ export function LearnPage() {
       const resp: LearnChatResponse = await postLearnChat({
         deckId: selectedAgent.deckId,
         userMessage: message,
-        cardId,
       });
 
       setChatMessages(prev => [...prev, { role: 'assistant', content: resp.assistantMessage }]);
-      setCanGrade(resp.canGrade);
-      setIsCorrect(resp.isCorrect);
-      setRevealed(resp.revealed);
+      // Update mode and card from response (server-driven state machine)
+      setMode(resp.mode);
+      setCardId(resp.card?.id ?? null);
+      setCardFront(resp.card?.front ?? null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to send message');
     } finally {
       setSendingMessage(false);
     }
-  }, [selectedAgent, cardId, userInput, sendingMessage]);
-
-  // Handle grade submission
-  const submitGrade = useCallback(async (grade: LearnGrade) => {
-    if (!selectedAgent || !cardId) return;
-
-    setLoadingSession(true);
-    setError(null);
-
-    try {
-      // Submit the grade
-      await postLearnReview({
-        deckId: selectedAgent.deckId,
-        cardId,
-        grade,
-      });
-
-      // Reset chat state and fetch next card
-      setChatMessages([]);
-      setCanGrade(false);
-      setIsCorrect(false);
-      setRevealed(false);
-
-      // Try to get next card
-      const nextResp = await getLearnNext(selectedAgent.deckId);
-      if (nextResp.card) {
-        // Start new session with next card
-        const startResp = await postLearnStart({ deckId: selectedAgent.deckId });
-        setCardId(startResp.cardId);
-        setCardFront(startResp.cardFront);
-        setChatMessages([{ role: 'assistant', content: startResp.assistantMessage }]);
-      } else {
-        // No more cards due
-        setCardId(null);
-        setCardFront(null);
-        setNextDueAt(nextResp.nextDueAt);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to submit grade');
-    } finally {
-      setLoadingSession(false);
-    }
-  }, [selectedAgent, cardId]);
+  }, [selectedAgent, userInput, sendingMessage]);
 
   // Go back to agent selection
   const backToAgents = useCallback(() => {
     setSelectedAgent(null);
+    setMode('card');
     setCardId(null);
     setCardFront(null);
     setChatMessages([]);
-    setCanGrade(false);
-    setIsCorrect(false);
-    setRevealed(false);
-    setNextDueAt(null);
     setError(null);
     fetchAgents();
   }, [fetchAgents]);
@@ -186,12 +180,6 @@ export function LearnPage() {
       e.preventDefault();
       sendMessage();
     }
-  };
-
-  // Get language display name
-  const getLanguageName = (code: string) => {
-    const lang = SUPPORTED_LANGUAGES.find(l => l.code === code);
-    return lang?.name || code;
   };
 
   return (
@@ -220,8 +208,8 @@ export function LearnPage() {
             <div className="loading">Loading available agents...</div>
           ) : agents.length === 0 ? (
             <div className="empty-state">
-              <p>No agents available right now.</p>
-              <p className="muted">Add cards to your decks or wait for cards to become due.</p>
+              <p>No decks available.</p>
+              <p className="muted">Create a deck to start learning.</p>
             </div>
           ) : (
             <div className="agents-grid">
@@ -240,8 +228,11 @@ export function LearnPage() {
                   <div className="agent-info">
                     <h3>{agent.agentName}</h3>
                     <p className="agent-deck">{agent.deckName}</p>
-                    <p className="agent-language">{getLanguageName(agent.language)}</p>
+                    <p className="agent-language">{agent.language}</p>
                     <p className="agent-due">{agent.dueCardCount} card{agent.dueCardCount !== 1 ? 's' : ''} due</p>
+                    <p className={`agent-starts-in ${agent.startsInMode}`}>
+                      Starts in: {agent.startsInMode === 'card' ? 'Card' : 'Free'}
+                    </p>
                   </div>
                 </div>
               ))}
@@ -250,8 +241,8 @@ export function LearnPage() {
         </>
       ) : loadingSession ? (
         <div className="loading">Loading session...</div>
-      ) : cardId && cardFront ? (
-        // Chat view
+      ) : (
+        // Chat view - works in both card and free modes
         <div className="chat-container">
           <div className="chat-header">
             <div className="chat-agent-info">
@@ -260,11 +251,17 @@ export function LearnPage() {
               </div>
               <div>
                 <strong>{selectedAgent.agentName}</strong>
-                <span className="chat-language">{getLanguageName(selectedAgent.language)}</span>
+                <span className="chat-language">{selectedAgent.language}</span>
               </div>
             </div>
-            <div className="chat-card-prompt">
-              <span className="prompt-label">Card:</span> {cardFront}
+            <div className={`chat-mode-indicator ${mode}`}>
+              {mode === 'card' && cardFront ? (
+                <>
+                  <span className="prompt-label">Card:</span> {cardFront}
+                </>
+              ) : (
+                <span className="prompt-label">Free Mode</span>
+              )}
             </div>
           </div>
 
@@ -286,62 +283,25 @@ export function LearnPage() {
             <div ref={chatEndRef} />
           </div>
 
-          {canGrade ? (
-            <div className="grade-section">
-              <p className="grade-prompt">
-                {isCorrect ? '✓ Correct!' : revealed ? 'Answer revealed.' : ''} How well did you know this?
-              </p>
-              <div className="learn-grades">
-                <button className="grade-btn again" onClick={() => submitGrade('again')}>
-                  Again
-                  <span className="grade-hint">Forgot</span>
-                </button>
-                <button className="grade-btn hard" onClick={() => submitGrade('hard')}>
-                  Hard
-                  <span className="grade-hint">Struggled</span>
-                </button>
-                <button className="grade-btn good" onClick={() => submitGrade('good')}>
-                  Good
-                  <span className="grade-hint">Remembered</span>
-                </button>
-                <button className="grade-btn easy" onClick={() => submitGrade('easy')}>
-                  Easy
-                  <span className="grade-hint">Instant</span>
-                </button>
-              </div>
-            </div>
-          ) : (
-            <div className="chat-input-container">
-              <input
-                ref={inputRef}
-                type="text"
-                value={userInput}
-                onChange={(e) => setUserInput(e.target.value)}
-                onKeyDown={handleKeyDown}
-                placeholder="Type your answer..."
-                disabled={sendingMessage}
-                maxLength={2000}
-              />
-              <button 
-                onClick={sendMessage} 
-                disabled={!userInput.trim() || sendingMessage}
-                className="send-button"
-              >
-                Send
-              </button>
-            </div>
-          )}
-        </div>
-      ) : nextDueAt ? (
-        <div className="empty-state">
-          <p>🎉 Great job! You've reviewed all due cards.</p>
-          <p className="muted">Next card due at {new Date(nextDueAt).toLocaleString()}</p>
-          <button onClick={backToAgents} className="secondary">Back to Agents</button>
-        </div>
-      ) : (
-        <div className="empty-state">
-          <p>No cards in this deck.</p>
-          <button onClick={backToAgents} className="secondary">Back to Agents</button>
+          <div className="chat-input-container">
+            <input
+              ref={inputRef}
+              type="text"
+              value={userInput}
+              onChange={(e) => setUserInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              placeholder={mode === 'card' ? 'Type your answer...' : 'Chat with your tutor...'}
+              disabled={sendingMessage}
+              maxLength={2000}
+            />
+            <button 
+              onClick={sendMessage} 
+              disabled={!userInput.trim() || sendingMessage}
+              className="send-button"
+            >
+              Send
+            </button>
+          </div>
         </div>
       )}
     </div>
