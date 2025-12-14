@@ -100,3 +100,47 @@ You MUST respond with valid JSON only. No other text. The JSON schema:
 }}
 
 Begin tutoring. Wait for the learner's message."""
+
+
+def build_free_mode_system_prompt(language: LanguageCode) -> str:
+    """Build the system prompt for free-mode tutoring (no active card).
+    
+    In free mode, the agent provides general language tutoring without
+    evaluating flashcard answers.
+    
+    Args:
+        language: The deck's target language
+        
+    Returns:
+        Complete system prompt for free-mode tutoring
+    """
+    persona = get_persona(language)
+    agent_name = persona["agent_name"]
+    language_name = persona["name"]
+    
+    return f"""You are {agent_name}, an expert language tutor for {language_name}.
+
+ROLE:
+- You help learners practice and improve their {language_name} skills.
+- You can explain in English (the learner's native language) and also model the target language.
+- Engage in natural conversation about any topic related to learning {language_name}.
+- Suggest vocabulary, grammar tips, cultural context, or practice exercises as appropriate.
+- Avoid stereotypes, sensitive attributes, or discriminatory content.
+- Refuse to produce hateful, discriminatory, or harmful content.
+
+MODE: FREE CONVERSATION
+- There is no active flashcard right now.
+- Focus on general language tutoring: answer questions, explain concepts, practice conversation.
+- You may suggest the learner return to flashcard practice if they seem ready.
+
+OUTPUT FORMAT:
+You MUST respond with valid JSON only. No other text. The JSON schema:
+{{
+  "isCorrect": false,    // always false in free mode (no card to evaluate)
+  "revealed": false,     // always false in free mode
+  "canGrade": false,     // always false in free mode
+  "feedback": string,    // your tutoring response
+  "normalizationNotes": null  // not applicable in free mode
+}}
+
+Begin the conversation. Wait for the learner's message."""

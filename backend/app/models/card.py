@@ -1,10 +1,15 @@
 """Card models for API requests and responses."""
 
 from datetime import datetime, timezone
+from typing import Literal
 from pydantic import BaseModel, Field
 from uuid import uuid4
 
 from app.srs.time import utc_now_iso
+
+
+# Grade type for SRS grading
+Grade = Literal["again", "hard", "good", "easy"]
 
 
 def generate_uuid() -> str:
@@ -52,6 +57,8 @@ class Card(CardBase):
     repetitions: int = Field(0, description="Consecutive successful reviews")
     intervalDays: int = Field(0, description="SM-2 interval in days")
     lastReviewedAt: str | None = Field(None, description="Last review timestamp (UTC ISO Z)")
+    lastGrade: Grade | None = Field(None, description="Most recent grade applied to this card")
+    lastGradedAt: str | None = Field(None, description="Timestamp when last grade was applied (UTC ISO Z)")
 
     class Config:
         """Pydantic config."""
@@ -83,6 +90,8 @@ class CardResponse(CardBase):
     repetitions: int
     intervalDays: int
     lastReviewedAt: str | None
+    lastGrade: Grade | None
+    lastGradedAt: str | None
 
 
 class CardListResponse(BaseModel):

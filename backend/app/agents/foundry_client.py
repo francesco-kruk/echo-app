@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import BaseModel, ValidationError
 
-from app.agents.personas import LanguageCode, build_system_prompt
+from app.agents.personas import LanguageCode, build_system_prompt, build_free_mode_system_prompt
 from app.agents.session_store import AgentSessionState, ChatMessage
 
 if TYPE_CHECKING:
@@ -145,6 +145,126 @@ class FoundryAgentClient:
             instructions=system_prompt,
         )
     
+    async def generate_greeting(
+        self,
+        language: LanguageCode,
+        session_state: AgentSessionState,
+        card_front: str | None = None,
+        card_back: str | None = None,
+    ) -> AgentResponse:
+        """Generate the initial assistant greeting for a learn session.
+        
+        Uses a synthetic user message to prompt the agent for a greeting.
+        The greeting adapts based on whether we're in card mode or free mode.
+        
+        Args:
+            language: The deck's target language
+            session_state: The current session state (will be mutated)
+            card_front: The front of the current card (if in card mode)
+            card_back: The back of the current card (if in card mode)
+            
+        Returns:
+            AgentResponse with the greeting as feedback
+        """
+        # Determine which prompt to use based on whether we have a card
+        if card_front is not None and card_back is not None:
+            # Card mode: use the standard card prompt
+            system_prompt = build_system_prompt(language, card_front, card_back)
+            synthetic_message = "Start the session with a friendly greeting and present the flashcard."
+        else:
+            # Free mode: use the free mode prompt
+            system_prompt = build_free_mode_system_prompt(language)
+            synthetic_message = "Start the session with a friendly greeting."
+        
+        try:
+            agent = self._get_agent(system_prompt)
+            thread = agent.get_new_thread()
+            
+            # Send synthetic message to get greeting
+            raw_response = await agent.run(synthetic_message, thread=thread)
+            
+            # Parse the response
+            response = self._parse_response(raw_response, should_reveal=False)
+            
+            # Store the greeting in session (as assistant message only)
+            session_state.add_message("assistant", response.feedback)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Greeting generation failed: {e}")
+            # Return a generic greeting on failure
+            if card_front:
+                fallback = f"Hello! Let's practice together. Here's your first card: {card_front}"
+            else:
+                fallback = "Hello! I'm ready to help you practice. What would you like to work on?"
+            
+            session_state.add_message("assistant", fallback)
+            return AgentResponse(
+                feedback=fallback,
+                is_correct=False,
+                revealed=False,
+                can_grade=False,
+                normalization_notes="Fallback greeting due to agent error",
+            )
+    
+    async def send_free_mode_message(
+        self,
+        user_message: str,
+        language: LanguageCode,
+        session_state: AgentSessionState,
+    ) -> AgentResponse:
+        """Send a message in free mode (no active card).
+        
+        Args:
+            user_message: The learner's message
+            language: The deck's target language
+            session_state: The current session state (will be mutated)
+            
+        Returns:
+            AgentResponse with the tutoring feedback (always non-grading)
+        """
+        system_prompt = build_free_mode_system_prompt(language)
+        
+        # Build conversation history for context
+        messages_for_context = self._build_context_messages(session_state.messages)
+        
+        try:
+            agent = self._get_agent(system_prompt)
+            thread = agent.get_new_thread()
+            
+            # Add previous messages to thread for context
+            for msg in messages_for_context:
+                if msg["role"] == "user":
+                    await agent.run(msg["content"], thread=thread)
+            
+            # Send current message
+            raw_response = await agent.run(user_message, thread=thread)
+            
+            # Parse the response (should always be non-grading in free mode)
+            response = self._parse_response(raw_response, should_reveal=False)
+            
+            # Force free-mode values regardless of what the model returned
+            response = AgentResponse(
+                feedback=response.feedback,
+                is_correct=False,
+                revealed=False,
+                can_grade=False,
+                normalization_notes=response.normalization_notes,
+            )
+            
+            # Update session state
+            session_state.add_message("user", user_message)
+            session_state.add_message("assistant", response.feedback)
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Free mode agent call failed: {e}")
+            return AgentResponse.error_response(
+                "I'm having trouble right now. Please try again."
+            )
+    
     async def send_message(
         self,
         user_message: str,
@@ -154,6 +274,9 @@ class FoundryAgentClient:
         session_state: AgentSessionState,
     ) -> AgentResponse:
         """Send a message to the tutoring agent and get a response.
+        
+        This method is for card mode - when there's an active flashcard.
+        For free mode (no card), use send_free_mode_message instead.
         
         Args:
             user_message: The learner's message

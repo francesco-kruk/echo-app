@@ -75,6 +75,8 @@ export interface Deck {
   userId: string;
   createdAt: string;
   updatedAt: string;
+  dueCardCount: number | null;
+  nextDueAt: string | null;
 }
 
 export interface DeckCreate {
@@ -108,6 +110,8 @@ export interface Card {
   repetitions: number;
   intervalDays: number;
   lastReviewedAt: string | null;
+  lastGrade: LearnGrade | null;
+  lastGradedAt: string | null;
 }
 
 export interface CardCreate {
@@ -131,18 +135,7 @@ export interface SeedResponse {
   cards_created: number;
 }
 
-export interface LearnNextResponse {
-  card: Card | null;
-  nextDueAt: string | null;
-}
-
 export type LearnGrade = 'again' | 'hard' | 'good' | 'easy';
-
-export interface LearnReviewRequest {
-  deckId: string;
-  cardId: string;
-  grade: LearnGrade;
-}
 
 /**
  * Helper function for API calls with authentication.
@@ -306,48 +299,25 @@ export async function seedSampleData(userId?: string): Promise<SeedResponse> {
   );
 }
 
-// Learn (SRS) API functions
-export async function getLearnNext(deckId: string, userId?: string): Promise<LearnNextResponse> {
-  const params = new URLSearchParams({ deckId });
-  return apiFetch<LearnNextResponse>(`/learn/next?${params.toString()}`, {}, userId);
-}
-
-export async function postLearnReview(
-  request: LearnReviewRequest,
-  userId?: string
-): Promise<Card> {
-  return apiFetch<Card>(
-    '/learn/review',
-    {
-      method: 'POST',
-      body: JSON.stringify(request),
-    },
-    userId
-  );
-}
-
 // Agent-based learning API types
-export interface LearnAgentSummary {
-  deckId: string;
-  deckName: string;
-  language: LanguageCode;
-  agentName: string;
-  dueCardCount: number;
-}
-
-export interface LearnAgentsResponse {
-  agents: LearnAgentSummary[];
-  count: number;
-}
-
 export interface LearnStartRequest {
   deckId: string;
 }
 
+// Card info returned in learn responses
+export interface LearnCardInfo {
+  id: string;
+  front: string;
+}
+
+// Learning mode: 'card' when studying a specific card, 'free' for general conversation
+export type LearnMode = 'card' | 'free';
+
 export interface LearnStartResponse {
-  cardId: string;
-  cardFront: string;
   assistantMessage: string;
+  mode: LearnMode;
+  card: LearnCardInfo | null;
+  conversationId: string;
   agentName: string;
   language: LanguageCode;
 }
@@ -355,23 +325,15 @@ export interface LearnStartResponse {
 export interface LearnChatRequest {
   deckId: string;
   userMessage: string;
-  cardId?: string;
 }
 
 export interface LearnChatResponse {
   assistantMessage: string;
-  canGrade: boolean;
-  revealed: boolean;
-  isCorrect: boolean;
-  cardId: string;
-  cardFront: string;
+  mode: LearnMode;
+  card: LearnCardInfo | null;
 }
 
 // Agent-based learning API functions
-export async function getLearnAgents(userId?: string): Promise<LearnAgentsResponse> {
-  return apiFetch<LearnAgentsResponse>('/learn/agents', {}, userId);
-}
-
 export async function postLearnStart(
   request: LearnStartRequest,
   userId?: string

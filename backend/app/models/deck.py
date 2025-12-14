@@ -80,6 +80,8 @@ class DeckResponse(DeckBase):
     language: LanguageCode | None = Field(default="de-DE")
     createdAt: str
     updatedAt: str
+    dueCardCount: int | None = Field(default=None, description="Number of cards currently due for review")
+    nextDueAt: str | None = Field(default=None, description="Earliest due timestamp among all cards (UTC ISO Z)")
 
 
 class DeckListResponse(BaseModel):

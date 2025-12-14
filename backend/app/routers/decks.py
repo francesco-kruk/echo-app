@@ -5,18 +5,34 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.models import DeckCreate, DeckUpdate, DeckResponse, DeckListResponse
 from app.repositories import get_deck_repository, DeckNotFoundError, get_card_repository
 from app.auth import get_current_user, CurrentUser
+from app.srs.time import utc_now_iso
 
 router = APIRouter(prefix="/decks", tags=["decks"])
 
 
 @router.get("", response_model=DeckListResponse)
 async def list_decks(user: Annotated[CurrentUser, Depends(get_current_user)]) -> DeckListResponse:
-    """List all decks for the current user."""
-    repo = get_deck_repository()
-    decks = repo.list_by_user(user.user_id)
+    """List all decks for the current user with due card metrics."""
+    deck_repo = get_deck_repository()
+    card_repo = get_card_repository()
+    decks = deck_repo.list_by_user(user.user_id)
+    now_iso = utc_now_iso()
+
+    deck_responses = []
+    for deck in decks:
+        due_count = card_repo.count_due_for_deck(user.user_id, deck.id, now_iso)
+        next_due_at = card_repo.get_next_due_at_for_deck(user.user_id, deck.id)
+        deck_responses.append(
+            DeckResponse(
+                **deck.model_dump(),
+                dueCardCount=due_count,
+                nextDueAt=next_due_at,
+            )
+        )
+
     return DeckListResponse(
-        decks=[DeckResponse(**deck.model_dump()) for deck in decks],
-        count=len(decks),
+        decks=deck_responses,
+        count=len(deck_responses),
     )
 
 
