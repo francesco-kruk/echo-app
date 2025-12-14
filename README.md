@@ -40,7 +40,7 @@ A flashcard application built with React + FastAPI, designed for Azure Container
 └────────────│───────────────────────────│───────│─────────────┘
              │                           │       │
       HTTPS (public)                     │       │
-             │                   Managed Identity (both)
+             │                       Managed Identity
              │                           │       │
       ┌─────────────┐        ┌───────────▼─┐   ┌─▼──────────────┐
       │   Browser   │        │  Cosmos DB  │   │  Azure OpenAI  │
