@@ -69,17 +69,30 @@ else
         else
             echo "Adding $FRONTEND_URI to SPA redirect URIs..."
             
-            # Build the new list of URIs using jq if available, otherwise use sed
+            # Build the new list of URIs using jq if available, otherwise use Python.
             if command -v jq &> /dev/null; then
                 NEW_URIS=$(echo "$CURRENT_URIS" | jq --arg uri "$FRONTEND_URI" '. + [$uri]')
             else
-                # Fallback: manually build JSON array
-                if [ "$CURRENT_URIS" = "[]" ]; then
-                    NEW_URIS="[\"$FRONTEND_URI\"]"
-                else
-                    # Remove trailing ] and add new URI
-                    NEW_URIS=$(echo "$CURRENT_URIS" | sed 's/]$/,\"'"$FRONTEND_URI"'\"]/')
+                # Fallback: use Python to safely append to the JSON array (URLs contain '/').
+                PYTHON_BIN=$(command -v python3 2>/dev/null || command -v python 2>/dev/null || echo "")
+                if [ -z "$PYTHON_BIN" ]; then
+                    echo "ERROR: jq not available and no python interpreter found to update redirect URIs." >&2
+                    exit 1
                 fi
+
+                NEW_URIS=$(CURRENT_URIS="$CURRENT_URIS" FRONTEND_URI="$FRONTEND_URI" "$PYTHON_BIN" - <<'PY'
+import json
+import os
+
+current = json.loads(os.environ.get("CURRENT_URIS", "[]") or "[]")
+uri = os.environ.get("FRONTEND_URI", "")
+
+if uri and uri not in current:
+    current.append(uri)
+
+print(json.dumps(current))
+PY
+)
             fi
             
             # Create a temp file with the full SPA object
