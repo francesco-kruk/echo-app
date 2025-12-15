@@ -89,15 +89,16 @@ Note: Authentication is enabled in Azure deployments.
 
 How values are set:
 - Preprovision hooks (`infra/hooks/preprovision.sh`) create Entra ID app registrations
-- `azd env` stores values like `AZURE_TENANT_ID`, `BACKEND_API_CLIENT_ID`, `FRONTEND_SPA_CLIENT_ID`
+- `azd env` stores values like `AZURE_TENANT_ID`, `AZURE_API_APP_ID`, `AZURE_SPA_APP_ID` (and also Bicep parameter values like `BACKEND_API_CLIENT_ID`, `FRONTEND_SPA_CLIENT_ID`)
 - Bicep parameters (`infra/environments/*.parameters.json`) reference `${VAR_NAME}` from `azd env`
 - Container Apps receive environment variables from Bicep outputs
 
 Environment variables:
-- **Auth:** `AZURE_TENANT_ID`, `BACKEND_API_CLIENT_ID`, `FRONTEND_SPA_CLIENT_ID`, `AUTH_ENABLED`, `VITE_AUTH_ENABLED`, `VITE_API_SCOPE`
-- **Backend:** `COSMOS_ENDPOINT`, `CORS_ORIGINS`
-- **Azure OpenAI:** `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_RESPONSES_DEPLOYMENT_NAME` (auto-provisioned, uses Managed Identity)
-- **Frontend:** `VITE_API_URL` (prod), `/api` proxy (local)
+- **Auth (Backend):** `AUTH_ENABLED`, `AZURE_TENANT_ID`, `AZURE_API_SCOPE` (audience, e.g. `api://<api-app-id>`), `AZURE_API_APP_ID`
+- **Auth (Frontend):** `VITE_AUTH_ENABLED`, `VITE_AZURE_CLIENT_ID`, `VITE_TENANT_ID`, `VITE_API_SCOPE` (space-separated scopes), optional `VITE_REDIRECT_URI`
+- **Backend:** `COSMOS_EMULATOR`, `COSMOS_ENDPOINT`, `COSMOS_DB_NAME`, `COSMOS_DECKS_CONTAINER`, `COSMOS_CARDS_CONTAINER`, `CORS_ORIGINS`
+- **Azure OpenAI:** `AZURE_OPENAI_ENDPOINT`, `AZURE_OPENAI_RESPONSES_DEPLOYMENT_NAME`, `AZURE_OPENAI_API_VERSION` (uses Managed Identity in Azure)
+- **Frontend (Local Dev):** `VITE_API_TARGET` (Vite dev proxy target; Docker Compose sets this to `http://backend:8000`)
 
 Local `.env` files:
 - Backend: `backend/.env` (see `backend/.env.example`)
@@ -135,6 +136,8 @@ uv run uvicorn app.main:app --reload --port 8000
 cd frontend
 npm install
 npm run dev
+
+# Frontend: http://localhost:3000
 ```
 
 Local defaults:
@@ -183,23 +186,21 @@ Connectivity verification:
 ## Usage
 
 1. Open the app at `http://localhost:3000` (or the deployed URL)
-2. You’ll be redirected to the Decks page (`/#/decks`)
-3. Click “📦 Create Sample Data” to populate sample decks (Spanish, French, German)
+2. You’ll be redirected to the Learn page (`/#/learn`)
+3. Go to Decks (click “Decks” in the header) and click “📦 Create Sample Data” to populate sample decks (Spanish, French, German)
 4. Click on a deck to view its cards
 5. Click on a card to flip and reveal the answer
 6. Use ✏️ and 🗑️ to edit or delete decks/cards
-7. Click "Learn" to start a spaced repetition session:
-   - Select an AI tutor agent (each deck has a persona based on its language)
-   - Chat with the tutor about your flashcard – the agent prompts and guides you
-   - Once you answer correctly (or request the answer to be revealed), grade buttons appear
-   - Grade the card: Again (2 min), Hard (10 min), Good (24 hrs), Easy (4 days)
-   - Cards reappear based on your grades
+7. Go to Learn to start a tutoring session:
+   - Pick a deck/agent (persona is based on the deck’s language)
+   - Chat with the tutor; when a card is resolved (correct or revealed), the backend applies SRS scheduling and advances to the next due card
+   - If no cards are due, the session runs in “free mode” (general language tutoring)
 
 ## API Reference
 
-All endpoints (except `/healthz`) require authentication:
-- In production: Bearer token from Entra ID (`Authorization: Bearer <token>`)
-- In local dev with auth disabled: `X-User-Id` header
+All endpoints (except `/healthz`) require a user identity:
+- In production (auth enabled): Bearer token from Entra ID (`Authorization: Bearer <token>`)
+- In local dev (auth disabled): `X-User-Id` header
 
 ### Decks
 
@@ -226,10 +227,9 @@ All endpoints (except `/healthz`) require authentication:
 | Endpoint        | Method | Description                                          |
 |-----------------|--------|------------------------------------------------------|
 | `/learn/agents` | GET    | List available tutor agents (decks with due cards)   |
-| `/learn/start`  | POST   | Start tutoring session for a deck                    |
-| `/learn/chat`   | POST   | Send message to tutor and receive verdict            |
+| `/learn/start`  | POST   | Start a tutoring session for a deck (card mode if due cards exist, otherwise free mode) |
+| `/learn/chat`   | POST   | Chat with the tutor (server-driven state machine; applies SRS scheduling when a card is resolved) |
 | `/learn/next`   | GET    | Get next due card for a deck (`?deckId=...`)         |
-| `/learn/review` | POST   | Submit a review grade (resets chat state)            |
 
 ### Other
 
