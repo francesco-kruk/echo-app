@@ -1,6 +1,6 @@
 # Echo App
 
-A flashcard application built with React + FastAPI, designed for Azure Container Apps deployment with Cosmos DB backend.
+A flashcard application built with React + FastAPI, designed for Azure Container Apps deployment with Cosmos DB and Azure OpenAI backend.
 
 ## Overview
 
