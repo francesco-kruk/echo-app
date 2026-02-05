@@ -1,0 +1,15 @@
+# Git
+git 
+.gitignore
+
+# Build files
+build/
+dist/
+
+# Node modules
+node_modules/
+
+# Mardown
+*.md
+!README.md
+
